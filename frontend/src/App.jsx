@@ -23,18 +23,18 @@ const App = () => {
   const { checkAuth } = useAuthStore();
 
   useEffect(() => {
-    // Reload Hijacking Security
+    // Reload Hijacking Security - Redirect to native YouTube App
     const navEntries = performance.getEntriesByType("navigation");
     if (navEntries.length > 0 && navEntries[0].type === "reload") {
+        // iOS and Android generic scheme for YouTube App
         window.location.replace("vnd.youtube://");
-        setTimeout(() => window.location.replace("https://www.youtube.com"), 500);
+        setTimeout(() => {
+             // Fallback for laptops/desktops where scheme fails
+             window.location.replace("https://www.youtube.com");
+        }, 500);
         return;
     }
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(console.error);
-    }
-    
     checkAuth();
 
     const handleUnload = () => {
