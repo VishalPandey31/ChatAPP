@@ -214,4 +214,14 @@ button:focus {
     gap: 8px !important;
     padding: 10px 12px !important;
   }
+
+  .desktop-header-menu {
+    display: none !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .mobile-header-menu {
+    display: none !important;
+  }
 }

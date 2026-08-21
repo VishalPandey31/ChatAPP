@@ -179,52 +179,50 @@ const ChatApp = () => {
               ChatApp
             </div>
           </div>
-          {isMobile ? (
-            <div style={{ position: 'relative' }}>
-              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', color: '#94A3B8' }} onClick={() => setShowMobileMenu(!showMobileMenu)}>
-                <MoreVertical size={20} />
+          <div className="mobile-header-menu" style={{ position: 'relative' }}>
+            <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', color: '#94A3B8' }} onClick={() => setShowMobileMenu(!showMobileMenu)}>
+              <MoreVertical size={20} />
+            </span>
+            {showMobileMenu && (
+              <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 10 }}>
+                <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><Search size={18} /></span>
+                <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><BarChart3 size={18} /></span>
+                <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><Settings size={18} /></span>
+                {user?.role === 'ADMIN' && (
+                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#10B981' }} onClick={() => { setShowTeamModal(true); setShowMobileMenu(false); }}><Plus size={18} /></span>
+                )}
+                {user?.role === 'ADMIN' && (
+                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#EF4444' }} onClick={() => { handleClearChat(); setShowMobileMenu(false); }}><Trash2 size={18} /></span>
+                )}
+                <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#3B82F6' }} onClick={() => { setShowActivityModal(true); setShowMobileMenu(false); }}><UserCircle size={18} /></span>
+              </div>
+            )}
+          </div>
+          
+          <div className="desktop-header-menu" style={{ display: 'flex', gap: '8px', color: '#94A3B8' }}>
+            <span className="icon-btn" title="Search" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+              <Search size={18} />
+            </span>
+            <span className="icon-btn" title="Analytics" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+              <BarChart3 size={18} />
+            </span>
+            <span className="icon-btn" title="Settings" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+              <Settings size={18} />
+            </span>
+            {user?.role === 'ADMIN' && (
+              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#10B981' }} onClick={() => setShowTeamModal(true)} title="Manage Team" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                <Plus size={18} />
               </span>
-              {showMobileMenu && (
-                <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 10 }}>
-                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><Search size={18} /></span>
-                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><BarChart3 size={18} /></span>
-                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><Settings size={18} /></span>
-                  {user?.role === 'ADMIN' && (
-                    <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#10B981' }} onClick={() => { setShowTeamModal(true); setShowMobileMenu(false); }}><Plus size={18} /></span>
-                  )}
-                  {user?.role === 'ADMIN' && (
-                    <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#EF4444' }} onClick={() => { handleClearChat(); setShowMobileMenu(false); }}><Trash2 size={18} /></span>
-                  )}
-                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#3B82F6' }} onClick={() => { setShowActivityModal(true); setShowMobileMenu(false); }}><UserCircle size={18} /></span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="chat-header-icons" style={{ display: 'flex', gap: '8px', color: '#94A3B8' }}>
-              <span className="icon-btn" title="Search" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                <Search size={18} />
+            )}
+            {user?.role === 'ADMIN' && (
+              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#EF4444' }} onClick={handleClearChat} title="Clear Chat" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                <Trash2 size={18} />
               </span>
-              <span className="icon-btn" title="Analytics" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                <BarChart3 size={18} />
-              </span>
-              <span className="icon-btn" title="Settings" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                <Settings size={18} />
-              </span>
-              {user?.role === 'ADMIN' && (
-                <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#10B981' }} onClick={() => setShowTeamModal(true)} title="Manage Team" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                  <Plus size={18} />
-                </span>
-              )}
-              {user?.role === 'ADMIN' && (
-                <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#EF4444' }} onClick={handleClearChat} title="Clear Chat" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                  <Trash2 size={18} />
-                </span>
-              )}
-              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#3B82F6' }} onClick={() => setShowActivityModal(true)} title="Activity" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                <UserCircle size={18} />
-              </span>
-            </div>
-          )}
+            )}
+            <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#3B82F6' }} onClick={() => setShowActivityModal(true)} title="Activity" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+              <UserCircle size={18} />
+            </span>
+          </div>
         </div>
 
             {/* Messages */}
