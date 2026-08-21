@@ -170,7 +170,7 @@ const ChatApp = () => {
       <div className="chat-main-area" style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#0B1120' }}>
         
         {/* Chat Header */}
-        <div className="chat-header" style={{ padding: '16px 24px', borderBottom: '1px solid #243044', backgroundColor: '#0B1120', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="chat-header" style={{ position: 'relative', zIndex: 50, padding: '16px 24px', borderBottom: '1px solid #243044', backgroundColor: '#0B1120', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ backgroundColor: 'rgba(37, 99, 235, 0.15)', color: '#2563eb', padding: '8px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <MessageSquare size={20} />
