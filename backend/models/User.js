@@ -41,6 +41,10 @@ const userSchema = new mongoose.Schema({
     lastSeen: {
         type: Date,
         default: Date.now
+    },
+    pushSubscriptions: {
+        type: Array, // Array of { endpoint, keys: { p256dh, auth } }
+        default: []
     }
 }, { timestamps: true });
 

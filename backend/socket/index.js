@@ -1,9 +1,19 @@
 import User from '../models/User.js';
 import Message from '../models/Message.js';
 import Chat from '../models/Chat.js';
+import Project from '../models/Project.js';
+import webpush from 'web-push';
+import dotenv from 'dotenv';
+dotenv.config();
+
+webpush.setVapidDetails(
+    'mailto:support@chatapp.com',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+);
 
 let connectedUsers = new Map(); // socket.id -> userId
-let userSockets = new Map(); // userId -> socket.id
+let userSockets = new Map(); // userId -> Set of socket.id
 
 export const socketHandler = (io) => {
     io.on("connection", (socket) => {
@@ -12,15 +22,18 @@ export const socketHandler = (io) => {
         // When a user logs in and establishes connection
         socket.on("join", async (userId) => {
             connectedUsers.set(socket.id, userId);
-            userSockets.set(userId, socket.id);
+
+            if (!userSockets.has(userId)) {
+                userSockets.set(userId, new Set());
+                // Broadcast online status since this is a new device online
+                socket.broadcast.emit("user_status", { userId, status: "online" });
+            }
+            userSockets.get(userId).add(socket.id);
             console.log(`User ${userId} joined with socket ${socket.id}`);
 
             // Send the complete list of currently online users to the user who just joined
             const currentOnlineUsers = Array.from(userSockets.keys());
             socket.emit("initial_online_users", currentOnlineUsers);
-
-            // Broadcast online status to everyone else
-            socket.broadcast.emit("user_status", { userId, status: "online" });
         });
 
         // Triggered by the Active Members Modal Refresh button
@@ -43,25 +56,31 @@ export const socketHandler = (io) => {
 
         // Admin Approves User
         socket.on("admin:approve-user", (userId) => {
-            const targetSocketId = userSockets.get(userId);
-            if (targetSocketId) {
-                io.to(targetSocketId).emit("user:approval-approved", { message: "Account approved" });
+            const targetSockets = userSockets.get(userId);
+            if (targetSockets) {
+                targetSockets.forEach(socketId => {
+                    io.to(socketId).emit("user:approval-approved", { message: "Account approved" });
+                });
             }
         });
 
         // Admin Rejects User
         socket.on("admin:reject-user", (userId) => {
-            const targetSocketId = userSockets.get(userId);
-            if (targetSocketId) {
-                io.to(targetSocketId).emit("user:approval-rejected", { message: "Account rejected" });
+            const targetSockets = userSockets.get(userId);
+            if (targetSockets) {
+                targetSockets.forEach(socketId => {
+                    io.to(socketId).emit("user:approval-rejected", { message: "Account rejected" });
+                });
             }
         });
 
         // Admin Removes User
         socket.on("admin:remove-user", (userId) => {
-            const targetSocketId = userSockets.get(userId);
-            if (targetSocketId) {
-                io.to(targetSocketId).emit("user:removed", { message: "Account removed by administrator" });
+            const targetSockets = userSockets.get(userId);
+            if (targetSockets) {
+                targetSockets.forEach(socketId => {
+                    io.to(socketId).emit("user:removed", { message: "Account removed by administrator" });
+                });
             }
         });
 
@@ -107,9 +126,36 @@ export const socketHandler = (io) => {
                 }
 
                 // Notify Receiver
-                const receiverSocketId = userSockets.get(receiverId);
-                if (receiverSocketId) {
-                    io.to(receiverSocketId).emit("receive_message", msg);
+                const receiverSockets = userSockets.get(receiverId);
+                if (receiverSockets) {
+                    receiverSockets.forEach(socketId => {
+                        io.to(socketId).emit("receive_message", msg);
+                    });
+                }
+
+                // Push Notification Trigger
+                if (receiver.pushSubscriptions && receiver.pushSubscriptions.length > 0) {
+                    const payload = JSON.stringify({
+                        title: 'ChatApp',
+                        body: 'New encrypted message',
+                        data: { url: '/chat/' + senderId }
+                    });
+
+                    const validSubs = [];
+                    let changed = false;
+                    await Promise.all(receiver.pushSubscriptions.map(async sub => {
+                        try {
+                            await webpush.sendNotification(sub, payload);
+                            validSubs.push(sub);
+                        } catch (error) {
+                            if (error.statusCode === 410 || error.statusCode === 404) changed = true;
+                            else validSubs.push(sub);
+                        }
+                    }));
+                    if (changed) {
+                        receiver.pushSubscriptions = validSubs;
+                        await receiver.save();
+                    }
                 }
 
                 // Notify Sender (for ack)
@@ -156,6 +202,44 @@ export const socketHandler = (io) => {
                 // Emit to designated project room
                 io.to(projectId).emit("receive_project_message", msg);
 
+                // Push Notification Logic for all project partners
+                const project = await Project.findById(projectId).populate('collaborators').populate('admin');
+                if (project) {
+                    const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
+                    const receivers = allMembers.filter(m => m._id.toString() !== senderId.toString());
+
+                    const payload = JSON.stringify({
+                        title: 'ChatApp Team',
+                        body: 'New encrypted message',
+                        data: { url: '/chat/' + projectId }
+                    });
+
+                    for (const u of receivers) {
+                        if (u.pushSubscriptions && u.pushSubscriptions.length > 0) {
+                            const validSubs = [];
+                            let changed = false;
+
+                            // Get fresh user instance for saving
+                            const dbUser = await User.findById(u._id);
+
+                            await Promise.all(dbUser.pushSubscriptions.map(async sub => {
+                                try {
+                                    await webpush.sendNotification(sub, payload);
+                                    validSubs.push(sub);
+                                } catch (err) {
+                                    if (err.statusCode === 410 || err.statusCode === 404) changed = true;
+                                    else validSubs.push(sub);
+                                }
+                            }));
+
+                            if (changed && dbUser) {
+                                dbUser.pushSubscriptions = validSubs;
+                                await dbUser.save();
+                            }
+                        }
+                    }
+                }
+
             } catch (err) {
                 console.error("Socket error on send_project_message:", err);
             }
@@ -166,9 +250,11 @@ export const socketHandler = (io) => {
         });
 
         socket.on("typing", ({ senderId, receiverId }) => {
-            const receiverSocketId = userSockets.get(receiverId);
-            if (receiverSocketId) {
-                io.to(receiverSocketId).emit("display_typing", { senderId });
+            const receiverSockets = userSockets.get(receiverId);
+            if (receiverSockets) {
+                receiverSockets.forEach(socketId => {
+                    io.to(socketId).emit("display_typing", { senderId });
+                });
             }
         });
 
@@ -176,14 +262,19 @@ export const socketHandler = (io) => {
             console.log("Client disconnected", socket.id);
             const userId = connectedUsers.get(socket.id);
             if (userId) {
-                userSockets.delete(userId);
                 connectedUsers.delete(socket.id);
-
-                // Broadcast offline
-                socket.broadcast.emit("user_status", { userId, status: "offline", lastSeen: new Date() });
-
-                // Update DB
-                User.findByIdAndUpdate(userId, { lastSeen: new Date() }).exec();
+                
+                const socketsForUser = userSockets.get(userId);
+                if (socketsForUser) {
+                    socketsForUser.delete(socket.id);
+                    if (socketsForUser.size === 0) {
+                        userSockets.delete(userId);
+                        // Broadcast offline
+                        socket.broadcast.emit("user_status", { userId, status: "offline", lastSeen: new Date() });
+                        // Update DB
+                        User.findByIdAndUpdate(userId, { lastSeen: new Date() }).exec();
+                    }
+                }
             }
         });
     });

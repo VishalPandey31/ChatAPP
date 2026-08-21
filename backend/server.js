@@ -1,5 +1,6 @@
 import express from "express";
 import http from "http";
+import https from "https";
 import { Server } from "socket.io";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -9,6 +10,7 @@ import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
+import notificationRoutes from './routes/NotificationRoutes.js';
 import { socketHandler } from './socket/index.js';
 
 dotenv.config();
@@ -29,6 +31,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 const io = new Server(server, {
   cors: {
@@ -50,6 +53,16 @@ mongoose.connect(process.env.MONGODB_URI)
     console.log("MongoDB connected");
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
+
+      // Self-ping to keep Render backend awake
+      const RENDER_URL = "https://chatapp-53it.onrender.com";
+      setInterval(() => {
+        https.get(RENDER_URL, (res) => {
+          console.log(`[Self-Ping] awake check: ${res.statusCode}`);
+        }).on('error', (err) => {
+          console.error('[Self-Ping] error:', err.message);
+        });
+      }, 14 * 60 * 1000); // 14 minutes
     });
   })
   .catch(err => {

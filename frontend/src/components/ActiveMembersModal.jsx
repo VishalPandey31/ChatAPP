@@ -1,12 +1,22 @@
 import React from 'react';
 import { useAuthStore } from '../store/authStore';
+import { useProjectStore } from '../store/projectStore';
 
 const ActiveMembersModal = ({ onClose, project }) => {
     const onlineUsers = useAuthStore(state => state.onlineUsers);
+    const currentUser = useAuthStore(state => state.user);
+    const fetchProjects = useProjectStore(state => state.fetchProjects);
 
-    const handleRefresh = () => {
+    const handleRefresh = async () => {
         const socket = useAuthStore.getState().socket;
         if (socket) socket.emit("get_online_users");
+        if (fetchProjects) {
+            try {
+                await fetchProjects();
+            } catch (err) {
+                console.error("Failed to refresh projects", err);
+            }
+        }
     };
 
     if (!project) return null;
@@ -37,7 +47,11 @@ const ActiveMembersModal = ({ onClose, project }) => {
                 <div style={{ height: '1px', backgroundColor: '#1e293b', marginBottom: '20px' }}></div>
     
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '400px', overflowY: 'auto' }}>
-                    {[project.admin, ...project.collaborators].filter(Boolean).map(member => {
+                    {[project.admin, ...(project.collaborators || [])].filter(Boolean).filter(member => {
+                        const memberId = member._id || member;
+                        const currentUserId = currentUser?._id || currentUser?.id;
+                        return memberId !== currentUserId;
+                    }).map(member => {
                         const memberId = member._id || member;
                         const isOnline = onlineUsers.includes(memberId);
                         return (
@@ -52,8 +66,19 @@ const ActiveMembersModal = ({ onClose, project }) => {
                                             backgroundColor: isOnline ? '#10b981' : '#64748b', border: '3px solid #1e293b' 
                                         }} />
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <span style={{ color: '#f8fafc', fontWeight: '700', fontSize: '16px' }}>{member.name || member.email || 'Admin User'}</span>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+                                        <span style={{ 
+                                            color: '#f8fafc', 
+                                            fontWeight: '700', 
+                                            fontSize: '16px',
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            maxWidth: '180px',
+                                            display: 'block'
+                                        }} title={member.email || member.name || 'Unknown User'}>
+                                            {member.email || member.name || 'Unknown User'}
+                                        </span>
                                         <span style={{ color: isOnline ? '#10b981' : '#94a3b8', fontSize: '14px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             {isOnline ? (
                                                 <><span style={{fontSize: '10px'}}>●</span> Online Now</>

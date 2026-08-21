@@ -60,6 +60,10 @@ export const useAuthStore = create((set, get) => ({
             if (socket) socket.disconnect();
             set({ user: null, socket: null, onlineUsers: [] });
             Cookies.remove('token');
+
+            import('../utils/pushService').then(({ unsubscribeFromPushNotifications }) => {
+                unsubscribeFromPushNotifications();
+            });
         } catch (err) {
             console.error(err);
         }

@@ -44,14 +44,27 @@ const ChatApp = () => {
   
   const currentProject = projects.find(p => p._id === projectId);
 
+  const [permission, setPermission] = useState(window.Notification?.permission);
+
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 1024);
     window.addEventListener('resize', handleResize);
-    if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-        Notification.requestPermission();
+    if (window.Notification?.permission === 'granted') {
+        import('../utils/pushService').then(({ subscribeToPushNotifications }) => {
+            subscribeToPushNotifications();
+        });
     }
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  const handleEnablePush = async () => {
+      const p = await Notification.requestPermission();
+      setPermission(p);
+      if (p === 'granted') {
+          const { subscribeToPushNotifications } = await import('../utils/pushService');
+          subscribeToPushNotifications();
+      }
+  };
 
   useEffect(() => {
     if (projects.length === 0) fetchProjects();
@@ -163,14 +176,14 @@ const ChatApp = () => {
   }
 
   return (
-    <div className="mobile-chat-wrapper" style={{ display: 'flex', height: '100vh', backgroundColor: 'var(--bg-primary)' }}>
+    <div className="mobile-chat-wrapper" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
       {/* Left Sidebar removed for full screen mode */}
 
       {/* FULL SCREEN CHAT AREA */}
-      <div className="chat-main-area" style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#0B1120' }}>
+      <div className="chat-main-area" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#0B1120', overflow: 'hidden' }}>
         
         {/* Chat Header */}
-        <div className="chat-header" style={{ position: 'relative', zIndex: 50, padding: '16px 24px', borderBottom: '1px solid #243044', backgroundColor: '#0B1120', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="chat-header" style={{ flexShrink: 0, position: 'relative', zIndex: 50, padding: '16px 24px', borderBottom: '1px solid #243044', backgroundColor: '#0B1120', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ backgroundColor: 'rgba(37, 99, 235, 0.15)', color: '#2563eb', padding: '8px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <MessageSquare size={20} />
@@ -181,22 +194,49 @@ const ChatApp = () => {
           </div>
           {isMobile ? (
             <div className="mobile-header-menu" style={{ position: 'relative' }}>
-              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', color: '#94A3B8' }} onClick={() => setShowMobileMenu(!showMobileMenu)}>
+              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', color: '#94A3B8' }} aria-label="Menu" aria-expanded={showMobileMenu} onClick={() => setShowMobileMenu(!showMobileMenu)}>
                 <MoreVertical size={20} />
               </span>
               {showMobileMenu && (
-                <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 10 }}>
-                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><Search size={18} /></span>
-                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><BarChart3 size={18} /></span>
-                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><Settings size={18} /></span>
-                  {user?.role === 'ADMIN' && (
-                    <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#10B981' }} onClick={() => { setShowTeamModal(true); setShowMobileMenu(false); }}><Plus size={18} /></span>
-                  )}
-                  {user?.role === 'ADMIN' && (
-                    <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#EF4444' }} onClick={() => { handleClearChat(); setShowMobileMenu(false); }}><Trash2 size={18} /></span>
-                  )}
-                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#3B82F6' }} onClick={() => { setShowActivityModal(true); setShowMobileMenu(false); }}><UserCircle size={18} /></span>
-                </div>
+                <>
+                  <div 
+                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 }} 
+                    onClick={() => setShowMobileMenu(false)}
+                  />
+                  <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 50, minWidth: '180px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#94A3B8', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => setShowMobileMenu(false)}>
+                      <Search size={18} />
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Search</span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#94A3B8', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => setShowMobileMenu(false)}>
+                      <BarChart3 size={18} />
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Analytics</span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#94A3B8', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => setShowMobileMenu(false)}>
+                      <Settings size={18} />
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Settings</span>
+                    </div>
+                    
+                    {user?.role === 'ADMIN' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#10B981', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { setShowTeamModal(true); setShowMobileMenu(false); }}>
+                        <Plus size={18} />
+                        <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>New/Add</span>
+                      </div>
+                    )}
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#EF4444', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { handleClearChat(); setShowMobileMenu(false); }}>
+                      <Trash2 size={18} />
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Delete</span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#3B82F6', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { setShowActivityModal(true); setShowMobileMenu(false); }}>
+                      <UserCircle size={18} />
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Profile</span>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           ) : (
@@ -215,11 +255,9 @@ const ChatApp = () => {
                   <Plus size={18} />
                 </span>
               )}
-              {user?.role === 'ADMIN' && (
-                <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#EF4444' }} onClick={handleClearChat} title="Clear Chat" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                  <Trash2 size={18} />
-                </span>
-              )}
+              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#EF4444' }} onClick={handleClearChat} title="Clear Chat" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                <Trash2 size={18} />
+              </span>
               <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#3B82F6' }} onClick={() => setShowActivityModal(true)} title="Activity" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
                 <UserCircle size={18} />
               </span>
@@ -227,8 +265,15 @@ const ChatApp = () => {
           )}
         </div>
 
+        {permission === 'default' && (
+          <div style={{ padding: '12px 16px', backgroundColor: 'rgba(37, 211, 102, 0.1)', color: '#25D366', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, borderBottom: '1px solid #1e293b' }}>
+            <span style={{ fontSize: '13px', flex: 1, marginRight: '12px' }}>Enable notifications to receive new encrypted messages even when the app is closed.</span>
+            <button onClick={handleEnablePush} style={{ backgroundColor: '#25D366', color: '#000', padding: '6px 12px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flexShrink: 0 }}>Enable</button>
+          </div>
+        )}
+
             {/* Messages */}
-            <div className="chat-messages" style={{ flex: 1, padding: '24px 32px', overflowY: 'auto' }}>
+            <div className="chat-messages" style={{ flex: 1, minHeight: 0, padding: '24px 32px', overflowY: 'auto' }}>
               {isMessagesLoading ? (
                 <div style={{ textAlign: 'center', color: '#64748B', fontFamily: '"Inter", sans-serif', fontSize: '14px', marginTop: '20px' }}>Loading messages...</div>
               ) : (
@@ -425,7 +470,7 @@ const ChatApp = () => {
             </div>
 
             {/* Input Area */}
-            <div className="chat-input-wrapper" style={{ padding: '0 32px 24px', backgroundColor: '#0B1120' }}>
+            <div className="chat-input-wrapper" style={{ flexShrink: 0, padding: '0 32px', paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))', paddingTop: '10px', backgroundColor: '#0B1120' }}>
               
               {/* Replying Preview Box */}
               {replyingTo && (() => {

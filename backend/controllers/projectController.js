@@ -26,7 +26,9 @@ export const createProject = async (req, res) => {
 
 export const getProjects = async (req, res) => {
     try {
-        const projects = await Project.find().populate('collaborators', 'email name profilePicture lastSeen role');
+        const projects = await Project.find()
+            .populate('admin', 'email name profilePicture lastSeen role')
+            .populate('collaborators', 'email name profilePicture lastSeen role');
 
         res.status(200).json(projects);
     } catch (error) {
