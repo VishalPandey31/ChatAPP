@@ -159,6 +159,53 @@ const ChatApp = () => {
                     }
                   }
 
+                  const handleTouchStart = (e) => {
+                    e.currentTarget.style.transition = 'none';
+                    e.currentTarget.dataset.startX = e.touches[0].clientX;
+                    e.currentTarget.dataset.swiping = 'true';
+                  };
+
+                  const handleTouchMove = (e) => {
+                    if (e.currentTarget.dataset.swiping !== 'true') return;
+                    const startX = parseFloat(e.currentTarget.dataset.startX);
+                    const currentX = e.touches[0].clientX;
+                    const diffX = currentX - startX;
+                    
+                    // Only apply right-swiping up to 80px
+                    if (diffX > 0 && diffX < 80) {
+                       e.currentTarget.style.transform = `translateX(${diffX}px)`;
+                       const icon = e.currentTarget.querySelector('.swipe-reply-icon');
+                       if (icon) {
+                         icon.style.opacity = Math.min(diffX / 50, 1);
+                       }
+                    }
+                  };
+
+                  const handleTouchEnd = (e, msg) => {
+                    e.currentTarget.dataset.swiping = 'false';
+                    const startX = parseFloat(e.currentTarget.dataset.startX);
+                    const endX = e.changedTouches[0].clientX;
+                    const diffX = endX - startX;
+
+                    e.currentTarget.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+                    e.currentTarget.style.transform = `translateX(0px)`;
+                    
+                    const icon = e.currentTarget.querySelector('.swipe-reply-icon');
+                    if (icon) {
+                       icon.style.transition = 'opacity 0.3s ease-out';
+                       icon.style.opacity = 0;
+                    }
+
+                    if (diffX > 50) {
+                      setReplyingTo(msg);
+                    }
+                    
+                    setTimeout(() => {
+                        if (e.currentTarget) e.currentTarget.style.transition = '';
+                        if (icon) icon.style.transition = '';
+                    }, 300);
+                  };
+
                   return (
                     <div key={index} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: '20px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '65%' }}>
@@ -171,83 +218,111 @@ const ChatApp = () => {
                             {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                           </span>
                         </div>
-                        <div className="chat-bubble relative group" style={{ 
-                          background: isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F', 
-                          color: isMine ? '#ffffff' : '#F8FAFC',
-                          padding: '12px 16px', 
-                          borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                          border: isMine ? 'none' : '1px solid #243044',
-                          wordBreak: 'break-word',
-                          lineHeight: '1.5',
-                          fontSize: '15px',
-                          fontFamily: '"Inter", sans-serif',
-                          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                          position: 'relative'
-                        }}>
-                          {/* Hover Reply Button */}
-                          <div 
-                            title="Reply"
-                            onClick={() => setReplyingTo(msg)}
-                            style={{
-                              position: 'absolute',
-                              top: '50%',
-                              [isMine ? 'left' : 'right']: '-44px',
-                              transform: 'translateY(-50%)',
-                              width: '32px',
-                              height: '32px',
-                              borderRadius: '50%',
-                              backgroundColor: '#111827',
-                              border: '1px solid #243044',
-                              display: 'flex',
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                              cursor: 'pointer',
-                              opacity: 0,
-                              visibility: 'hidden',
-                              transition: 'opacity 0.2s, background-color 0.2s',
-                              color: '#94A3B8'
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}
-                            className="reply-btn"
-                          >
+                        
+                        {/* Interactive message row container */}
+                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          
+                          {/* Swipe to reply icon indicator */}
+                          <div className="swipe-reply-icon" style={{ 
+                            position: 'absolute', 
+                            left: '-30px', 
+                            opacity: 0, 
+                            color: '#e2e8f0', 
+                            backgroundColor: '#2563EB',
+                            borderRadius: '50%',
+                            padding: '4px',
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center'
+                          }}>
                             <Reply size={14} />
                           </div>
 
-                          {/* Reply Context Nested Block */}
-                          {msg.replyTo && (() => {
-                            const replySenderId = typeof msg.replyTo.sender === 'object' ? msg.replyTo.sender?._id : msg.replyTo.sender;
-                            let replyDisplay = 'Teammate';
-                            if (replySenderId === user._id) {
-                              replyDisplay = 'You';
-                            } else if (typeof msg.replyTo.sender === 'object' && msg.replyTo.sender?.email) {
-                              replyDisplay = msg.replyTo.sender.name || msg.replyTo.sender.email.split('@')[0];
-                            } else if (currentProject) {
-                              const matchedMember = [currentProject.admin, ...(currentProject.collaborators || [])].find(m => m && (m._id === replySenderId || m === replySenderId));
-                              if (matchedMember && typeof matchedMember === 'object' && matchedMember.email) {
-                                replyDisplay = matchedMember.name || matchedMember.email.split('@')[0];
-                              }
-                            }
-                            return (
-                            <div style={{
-                              backgroundColor: isMine ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.25)',
-                              borderLeft: `3px solid ${isMine ? '#93C5FD' : '#2563EB'}`,
-                              padding: '8px 12px',
-                              borderRadius: '6px',
-                              marginBottom: '10px',
-                              fontSize: '13px'
-                            }}>
-                              <div style={{ fontWeight: '600', color: isMine ? '#BFDBFE' : '#60A5FA', marginBottom: '2px' }}>
-                                {replyDisplay}
-                              </div>
-                              <div style={{ color: isMine ? '#E0F2FE' : '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {msg.replyTo.content}
-                              </div>
+                          <div className="chat-bubble relative group" 
+                            onTouchStart={handleTouchStart}
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={(e) => handleTouchEnd(e, msg)}
+                            style={{ 
+                            background: isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F', 
+                            color: isMine ? '#ffffff' : '#F8FAFC',
+                            padding: '12px 16px', 
+                            borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                            border: isMine ? 'none' : '1px solid #243044',
+                            wordBreak: 'break-word',
+                            lineHeight: '1.5',
+                            fontSize: '15px',
+                            fontFamily: '"Inter", sans-serif',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                            position: 'relative',
+                            userSelect: 'none', // Prevent text selection on mobile swipe
+                            width: '100%',
+                            zIndex: 2
+                          }}>
+                            {/* Hover Reply Button (Desktop fallback) */}
+                            <div 
+                              title="Reply"
+                              onClick={() => setReplyingTo(msg)}
+                              style={{
+                                position: 'absolute',
+                                top: '50%',
+                                [isMine ? 'left' : 'right']: '-44px',
+                                transform: 'translateY(-50%)',
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                backgroundColor: '#111827',
+                                border: '1px solid #243044',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                opacity: 0,
+                                visibility: 'hidden',
+                                transition: 'opacity 0.2s, background-color 0.2s',
+                                color: '#94A3B8'
+                              }}
+                              onMouseEnter={(e) => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}
+                              className="reply-btn md-show-on-hover"
+                            >
+                              <Reply size={14} />
                             </div>
-                            );
-                          })()}
-                          
-                          {msg.content}
+
+                            {/* Reply Context Nested Block */}
+                            {msg.replyTo && (() => {
+                              const replySenderId = typeof msg.replyTo.sender === 'object' ? msg.replyTo.sender?._id : msg.replyTo.sender;
+                              let replyDisplay = 'Teammate';
+                              if (replySenderId === user._id) {
+                                replyDisplay = 'You';
+                              } else if (typeof msg.replyTo.sender === 'object' && msg.replyTo.sender?.email) {
+                                replyDisplay = msg.replyTo.sender.name || msg.replyTo.sender.email.split('@')[0];
+                              } else if (currentProject) {
+                                const matchedMember = [currentProject.admin, ...(currentProject.collaborators || [])].find(m => m && (m._id === replySenderId || m === replySenderId));
+                                if (matchedMember && typeof matchedMember === 'object' && matchedMember.email) {
+                                  replyDisplay = matchedMember.name || matchedMember.email.split('@')[0];
+                                }
+                              }
+                              return (
+                              <div style={{
+                                backgroundColor: isMine ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.25)',
+                                borderLeft: `3px solid ${isMine ? '#93C5FD' : '#2563EB'}`,
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                marginBottom: '10px',
+                                fontSize: '13px'
+                              }}>
+                                <div style={{ fontWeight: '600', color: isMine ? '#BFDBFE' : '#60A5FA', marginBottom: '2px' }}>
+                                  {replyDisplay}
+                                </div>
+                                <div style={{ color: isMine ? '#E0F2FE' : '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {msg.replyTo.content}
+                                </div>
+                              </div>
+                              );
+                            })()}
+                            
+                            {msg.content}
+                          </div>
                         </div>
                       </div>
                     </div>
