@@ -215,13 +215,14 @@ button:focus {
     padding: 10px 12px !important;
   }
 
-  .desktop-header-menu {
-    display: none !important;
+  @media (max-width: 1023px) {
+    .desktop-header-menu {
+      display: none !important;
+    }
   }
-}
 
-@media (min-width: 768px) {
-  .mobile-header-menu {
-    display: none !important;
+  @media (min-width: 1024px) {
+    .mobile-header-menu {
+      display: none !important;
+    }
   }
-}

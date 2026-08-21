@@ -84,7 +84,7 @@ const ChatApp = () => {
         const incomingSenderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
         if (incomingSenderId !== user._id) {
             playNotificationSound();
-            if (Notification.permission === 'granted' && document.hidden) {
+            if (Notification.permission === 'granted') {
                 let senderDisplay = 'Teammate';
                 if (typeof msg.sender === 'object' && msg.sender?.name) senderDisplay = msg.sender.name;
                 const notification = new Notification(`New message from ${senderDisplay}`, {
