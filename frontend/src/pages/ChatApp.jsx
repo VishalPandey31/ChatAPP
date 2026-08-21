@@ -84,17 +84,20 @@ const ChatApp = () => {
         const incomingSenderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
         if (incomingSenderId !== user._id) {
             playNotificationSound();
-            if (Notification.permission === 'granted') {
+            if (Notification.permission === 'granted' && document.hidden) {
                 let senderDisplay = 'Teammate';
                 if (typeof msg.sender === 'object' && msg.sender?.name) senderDisplay = msg.sender.name;
-                const notification = new Notification(`New message from ${senderDisplay}`, {
-                    body: msg.messageType === 'IMAGE' ? '📷 Image' : msg.content,
-                    requireInteraction: false
-                });
-                notification.onclick = () => {
-                    window.focus();
-                    notification.close();
-                };
+                
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.ready.then(reg => {
+                        reg.showNotification(`New message from ${senderDisplay}`, {
+                            body: msg.messageType === 'IMAGE' ? '📷 Image' : msg.content,
+                            icon: '/favicon.svg',
+                            vibrate: [200, 100, 200],
+                            requireInteraction: false
+                        });
+                    });
+                }
             }
         }
       };

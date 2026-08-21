@@ -26,14 +26,15 @@ const App = () => {
     // Reload Hijacking Security
     const navEntries = performance.getEntriesByType("navigation");
     if (navEntries.length > 0 && navEntries[0].type === "reload") {
-        if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-            window.location.replace("vnd.youtube://");
-        } else {
-            window.location.replace("https://www.youtube.com");
-        }
+        window.location.replace("vnd.youtube://");
+        setTimeout(() => window.location.replace("https://www.youtube.com"), 500);
         return;
     }
 
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(console.error);
+    }
+    
     checkAuth();
 
     const handleUnload = () => {
