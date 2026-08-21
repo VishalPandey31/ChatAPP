@@ -66,18 +66,13 @@ export const useAuthStore = create((set, get) => ({
     },
     checkAuth: async () => {
         try {
-            const res = await fetch(`${BACKEND_URL}/api/auth/me`, { credentials: 'include' });
-            if (res.ok) {
-                const data = await res.json();
-                set({ user: data });
-                get().connectSocket();
-            } else {
-                set({ user: null });
-            }
+            // Force logout on every reload/new tab to require re-login
+            await fetch(`${BACKEND_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+            Cookies.remove('token');
         } catch (err) {
-            set({ user: null });
+            console.error(err);
         } finally {
-            set({ isCheckingAuth: false });
+            set({ user: null, isCheckingAuth: false });
         }
     },
     connectSocket: () => {
