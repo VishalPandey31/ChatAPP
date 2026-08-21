@@ -17,7 +17,7 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors({
-  origin: [process.env.FRONTEND_URL, "http://localhost:5173", "https://secretlove.surge.sh"],
+  origin: [process.env.FRONTEND_URL, "http://localhost:5173", "https://spiderman.surge.sh"],
   credentials: true,
 }));
 
