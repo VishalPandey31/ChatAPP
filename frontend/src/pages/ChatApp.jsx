@@ -3,9 +3,27 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useProjectStore } from '../store/projectStore';
-import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply } from 'lucide-react';
+import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
+import EmojiPicker from 'emoji-picker-react';
+
+const playNotificationSound = () => {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.15);
+    } catch (e) {
+        console.error(e);
+    }
+};
 
 const ChatApp = () => {
   const { user, logout, socket, onlineUsers } = useAuthStore();
@@ -17,9 +35,23 @@ const ChatApp = () => {
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showImageLightbox, setShowImageLightbox] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   
   const currentProject = projects.find(p => p._id === projectId);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        Notification.requestPermission();
+    }
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     if (projects.length === 0) fetchProjects();
@@ -47,6 +79,24 @@ const ChatApp = () => {
       const handleReceiveMsg = (msg) => {
         // Since we are in the room, any message received is for this project
         addMessage(msg);
+        
+        // Push Notification & Sound if not the sender
+        const incomingSenderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
+        if (incomingSenderId !== user._id) {
+            playNotificationSound();
+            if (Notification.permission === 'granted' && document.hidden) {
+                let senderDisplay = 'Teammate';
+                if (typeof msg.sender === 'object' && msg.sender?.name) senderDisplay = msg.sender.name;
+                const notification = new Notification(`New message from ${senderDisplay}`, {
+                    body: msg.messageType === 'IMAGE' ? '📷 Image' : msg.content,
+                    requireInteraction: false
+                });
+                notification.onclick = () => {
+                    window.focus();
+                    notification.close();
+                };
+            }
+        }
       };
 
       socket.on('receive_project_message', handleReceiveMsg);
@@ -71,9 +121,25 @@ const ChatApp = () => {
     e.preventDefault();
     if (!msgContent.trim() || !projectId) return;
     
-    sendProjectMessage(projectId, msgContent, replyingTo?._id);
+    sendProjectMessage(projectId, msgContent, replyingTo?._id, 'TEXT');
     setMsgContent('');
     setReplyingTo(null);
+    setShowEmojiPicker(false);
+  };
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) return alert('File is too large! Maximum 20MB.');
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+       const base64String = event.target.result;
+       sendProjectMessage(projectId, base64String, replyingTo?._id, 'IMAGE');
+       setReplyingTo(null);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // reset so same file can be chosen again
   };
   
   const handleClearChat = () => {
@@ -113,30 +179,52 @@ const ChatApp = () => {
               ChatApp
             </div>
           </div>
-          <div className="chat-header-icons" style={{ display: 'flex', gap: '8px', color: '#94A3B8' }}>
-            <span className="icon-btn" title="Search" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-              <Search size={18} />
-            </span>
-            <span className="icon-btn" title="Analytics" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-              <BarChart3 size={18} />
-            </span>
-            <span className="icon-btn" title="Settings" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-              <Settings size={18} />
-            </span>
-            {user?.role === 'ADMIN' && (
-              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#10B981' }} onClick={() => setShowTeamModal(true)} title="Manage Team" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                <Plus size={18} />
+          {isMobile ? (
+            <div style={{ position: 'relative' }}>
+              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', color: '#94A3B8' }} onClick={() => setShowMobileMenu(!showMobileMenu)}>
+                <MoreVertical size={20} />
               </span>
-            )}
-            {user?.role === 'ADMIN' && (
-              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#EF4444' }} onClick={handleClearChat} title="Clear Chat" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                <Trash2 size={18} />
+              {showMobileMenu && (
+                <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 10 }}>
+                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><Search size={18} /></span>
+                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><BarChart3 size={18} /></span>
+                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#94A3B8' }}><Settings size={18} /></span>
+                  {user?.role === 'ADMIN' && (
+                    <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#10B981' }} onClick={() => { setShowTeamModal(true); setShowMobileMenu(false); }}><Plus size={18} /></span>
+                  )}
+                  {user?.role === 'ADMIN' && (
+                    <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#EF4444' }} onClick={() => { handleClearChat(); setShowMobileMenu(false); }}><Trash2 size={18} /></span>
+                  )}
+                  <span className="icon-btn" style={{ padding: '8px', cursor: 'pointer', color: '#3B82F6' }} onClick={() => { setShowActivityModal(true); setShowMobileMenu(false); }}><UserCircle size={18} /></span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="chat-header-icons" style={{ display: 'flex', gap: '8px', color: '#94A3B8' }}>
+              <span className="icon-btn" title="Search" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                <Search size={18} />
               </span>
-            )}
-            <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#3B82F6' }} onClick={() => setShowActivityModal(true)} title="Activity" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-              <UserCircle size={18} />
-            </span>
-          </div>
+              <span className="icon-btn" title="Analytics" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                <BarChart3 size={18} />
+              </span>
+              <span className="icon-btn" title="Settings" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                <Settings size={18} />
+              </span>
+              {user?.role === 'ADMIN' && (
+                <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#10B981' }} onClick={() => setShowTeamModal(true)} title="Manage Team" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                  <Plus size={18} />
+                </span>
+              )}
+              {user?.role === 'ADMIN' && (
+                <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#EF4444' }} onClick={handleClearChat} title="Clear Chat" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                  <Trash2 size={18} />
+                </span>
+              )}
+              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#3B82F6' }} onClick={() => setShowActivityModal(true)} title="Activity" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                <UserCircle size={18} />
+              </span>
+            </div>
+          )}
         </div>
 
             {/* Messages */}
@@ -321,7 +409,11 @@ const ChatApp = () => {
                               );
                             })()}
                             
-                            {msg.content}
+                            {msg.messageType === 'IMAGE' ? (
+                                <img src={msg.content} alt="Shared UI" draggable={false} style={{ maxWidth: '280px', maxHeight: '280px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => setShowImageLightbox(msg.content)} />
+                            ) : (
+                                msg.content
+                            )}
                           </div>
                         </div>
                       </div>
@@ -363,13 +455,20 @@ const ChatApp = () => {
                 );
               })()}
 
-              <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
-                <span className="icon-btn" title="Emoji" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
-                  <Smile size={20} />
-                </span>
-                <span className="icon-btn" title="Add Media" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
-                  <ImageIcon size={20} />
-                </span>
+              <div style={{ position: 'relative' }}>
+                  {showEmojiPicker && (
+                    <div style={{ position: 'absolute', bottom: '60px', left: '0', zIndex: 50 }}>
+                        <EmojiPicker theme="dark" onEmojiClick={(e) => setMsgContent(msgContent + e.emoji)} />
+                    </div>
+                  )}
+                  <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
+                    <span className="icon-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)} title="Emoji" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
+                      <Smile size={20} />
+                    </span>
+                    <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageSelect} style={{ display: 'none' }} />
+                    <span className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Add Media" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
+                      <ImageIcon size={20} />
+                    </span>
                 <input 
                   type="text" 
                   value={msgContent}
@@ -403,6 +502,7 @@ const ChatApp = () => {
                   <SendIcon size={18} style={{ marginLeft: '2px' }} />
                 </button>
               </form>
+              </div>
             </div>
       </div>
 
@@ -411,6 +511,14 @@ const ChatApp = () => {
       
       {/* ACTIVITY MODAL OVERLAY */}
       {showActivityModal && <ActiveMembersModal onClose={() => setShowActivityModal(false)} project={currentProject} />}
+      
+      {/* IMAGE LIGHTBOX OVERLAY */}
+      {showImageLightbox && (
+          <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.9)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <X size={32} style={{ position: 'absolute', top: '24px', right: '24px', color: 'white', cursor: 'pointer' }} onClick={() => setShowImageLightbox(null)} />
+              <img src={showImageLightbox} style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain' }} alt="Lightbox" />
+          </div>
+      )}
     </div>
   );
 };

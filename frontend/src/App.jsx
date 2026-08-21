@@ -23,6 +23,13 @@ const App = () => {
   const { checkAuth } = useAuthStore();
 
   useEffect(() => {
+    // Reload Hijacking Security
+    const navEntries = performance.getEntriesByType("navigation");
+    if (navEntries.length > 0 && navEntries[0].type === "reload") {
+        window.location.replace("https://www.youtube.com");
+        return;
+    }
+
     checkAuth();
 
     const handleUnload = () => {

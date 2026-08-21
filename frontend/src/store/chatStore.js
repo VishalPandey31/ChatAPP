@@ -67,7 +67,7 @@ export const useChatStore = create((set, get) => ({
         });
     },
 
-    sendProjectMessage: async (projectId, content, replyToId = null) => {
+    sendProjectMessage: async (projectId, content, replyToId = null, messageType = 'TEXT') => {
         const socket = useAuthStore.getState().socket;
         if (!socket) return;
 
@@ -75,7 +75,7 @@ export const useChatStore = create((set, get) => ({
             senderId: useAuthStore.getState().user._id,
             projectId,
             content,
-            messageType: 'TEXT'
+            messageType
         };
         if (replyToId) payload.replyTo = replyToId;
 
