@@ -359,10 +359,11 @@ const ChatApp = () => {
 
             {/* Messages */}
             <div className="chat-messages" style={{ flex: 1, minHeight: 0, padding: '24px 32px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-              {isMessagesLoading ? (
-                <div style={{ textAlign: 'center', color: '#64748B', fontFamily: '"Inter", sans-serif', fontSize: '14px', marginTop: '20px' }}>Loading messages...</div>
-              ) : (
-                messages.map((msg, index) => {
+              {React.useMemo(() => {
+                if (isMessagesLoading) {
+                  return <div style={{ textAlign: 'center', color: '#64748B', fontFamily: '"Inter", sans-serif', fontSize: '14px', marginTop: '20px' }}>Loading messages...</div>;
+                }
+                return messages.map((msg, index) => {
                   const senderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
                   const isMine = senderId === user._id;
                   
@@ -519,11 +520,14 @@ const ChatApp = () => {
                             {activeMenuMsgId === msg._id && isMobile && (
                                 <>
                                   <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }} onClick={() => setActiveMenuMsgId(null)} onTouchStart={() => setActiveMenuMsgId(null)} />
-                                  <div className="animate-fade-in" style={{ position: 'absolute', top: '100%', [isMine ? 'right' : 'left']: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', gap: '12px', zIndex: 15, boxShadow: '0 4px 6px rgba(0,0,0,0.5)', marginTop: '4px' }}>
-                                      <div title="React" onClick={() => { setReactionMsgId(reactionMsgId === msg._id ? null : msg._id); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '6px' }}><Smile size={18} /></div>
-                                      {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo(msg); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '6px' }}><Reply size={18} /></div>}
-                                      {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '6px' }}><Pencil size={18} /></div>}
-                                      {isMine && !msg.deleted && <div title="Delete" onClick={() => { setActiveMenuMsgId(null); if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ color: '#EF4444', padding: '6px' }}><Trash2 size={18} /></div>}
+                                  <div className="animate-fade-in" style={{ position: 'absolute', top: '100%', [isMine ? 'right' : 'left']: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 15, boxShadow: '0 4px 6px rgba(0,0,0,0.5)', marginTop: '4px', minWidth: '180px' }}>
+                                      <div title="React" onClick={() => { setReactionMsgId(reactionMsgId === msg._id ? null : msg._id); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}><Smile size={18} /> React</div>
+                                      {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo(msg); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}><Reply size={18} /> Reply</div>}
+                                      {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}><Pencil size={18} /> Edit</div>}
+                                      
+                                      <div style={{ height: '1px', backgroundColor: '#243044', margin: '4px 0' }} />
+                                      <div title="Delete for me" onClick={() => { setActiveMenuMsgId(null); useChatStore.getState().removeMessageFromUI(msg._id); }} style={{ color: '#EF4444', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={18} /> Delete for me</div>
+                                      {isMine && !msg.deleted && <div title="Delete for everyone" onClick={() => { setActiveMenuMsgId(null); if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ color: '#EF4444', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={18} /> Delete for everyone</div>}
                                   </div>
                                 </>
                             )}
@@ -595,8 +599,8 @@ const ChatApp = () => {
                       </div>
                     </div>
                   );
-                })
-              )}
+                });
+              }, [messages, isMessagesLoading, user, currentProject, isMobile, activeMenuMsgId, reactionMsgId, projectId])}
               <div ref={messagesEndRef} />
             </div>
 

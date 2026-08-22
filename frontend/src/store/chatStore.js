@@ -143,6 +143,12 @@ export const useChatStore = create((set, get) => ({
         });
     },
 
+    removeMessageFromUI: (messageId) => {
+        set((state) => ({
+            messages: state.messages.filter(m => m._id !== messageId)
+        }));
+    },
+
     updateMessage: (updatedMsg) => {
         set((state) => ({
             messages: state.messages.map(m => m._id === updatedMsg._id ? updatedMsg : m)
