@@ -42,9 +42,11 @@ const ChatApp = () => {
   const [editingMessage, setEditingMessage] = useState(null);
   const [typingUsers, setTypingUsers] = useState(new Map());
   const [reactionMsgId, setReactionMsgId] = useState(null);
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const pressTimer = useRef(null);
   
   const currentProject = projects.find(p => p._id === projectId);
 
@@ -244,8 +246,20 @@ const ChatApp = () => {
             <div style={{ backgroundColor: 'rgba(37, 99, 235, 0.15)', color: '#2563eb', padding: '8px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <MessageSquare size={20} />
             </div>
-            <div style={{ fontWeight: '600', fontSize: '18px', color: '#F8FAFC', letterSpacing: '0.3px', fontFamily: '"Inter", sans-serif' }}>
-              ChatApp
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontWeight: '600', fontSize: '16px', color: '#F8FAFC', letterSpacing: '0.3px', fontFamily: '"Inter", sans-serif' }}>
+                 {currentProject ? currentProject.name : 'ChatApp'}
+              </span>
+              <span style={{ fontSize: '12px', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
+                {(() => {
+                    const typingStr = Array.from(typingUsers.values()).join(', ');
+                    if (typingStr) return <span style={{ color: '#25D366', fontStyle: 'italic' }}>{typingStr} typing...</span>;
+                    if (!currentProject) return 'Offline';
+                    const otherMembers = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => m && (m._id || m) !== user._id);
+                    const onlineCount = otherMembers.filter(m => onlineUsers.includes(m._id || m)).length;
+                    return onlineCount > 0 ? (otherMembers.length === 1 ? 'Online' : `${onlineCount} member(s) online`) : 'Offline';
+                })()}
+              </span>
             </div>
           </div>
           {isMobile ? (
@@ -395,6 +409,16 @@ const ChatApp = () => {
                     }, 300);
                   };
 
+                  const handleBubbleTouchStart = (e) => {
+                      pressTimer.current = setTimeout(() => {
+                           setActiveMenuMsgId(msg._id);
+                           if (window.navigator && window.navigator.vibrate) window.navigator.vibrate(50);
+                      }, 500);
+                  };
+                  const handleBubbleTouchEnd = () => {
+                      if (pressTimer.current) clearTimeout(pressTimer.current);
+                  };
+
                   return (
                     <div key={index} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: '20px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '65%' }}>
@@ -434,9 +458,11 @@ const ChatApp = () => {
                           </div>
 
                           <div className="chat-bubble relative group" 
-                            onTouchStart={handleTouchStart}
-                            onTouchMove={handleTouchMove}
-                            onTouchEnd={(e) => handleTouchEnd(e, msg)}
+                            onTouchStart={(e) => { handleTouchStart(e); handleBubbleTouchStart(e); }}
+                            onTouchMove={(e) => { handleTouchMove(e); handleBubbleTouchEnd(e); }}
+                            onTouchEnd={(e) => { handleTouchEnd(e, msg); handleBubbleTouchEnd(e); }}
+                            onTouchCancel={handleBubbleTouchEnd}
+                            onContextMenu={(e) => { if (isMobile) { e.preventDefault(); setActiveMenuMsgId(msg._id); } }}
                             style={{ 
                             background: isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F', 
                             color: isMine ? '#ffffff' : '#F8FAFC',
@@ -473,6 +499,19 @@ const ChatApp = () => {
                                 {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Pencil size={14} /></div>}
                                 {isMine && !msg.deleted && <div title="Delete" onClick={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Trash2 size={14} /></div>}
                             </div>
+                            
+                            {/* Mobile Long Press Menu */}
+                            {activeMenuMsgId === msg._id && isMobile && (
+                                <>
+                                  <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }} onClick={() => setActiveMenuMsgId(null)} onTouchStart={() => setActiveMenuMsgId(null)} />
+                                  <div className="animate-fade-in" style={{ position: 'absolute', top: '100%', [isMine ? 'right' : 'left']: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', gap: '12px', zIndex: 15, boxShadow: '0 4px 6px rgba(0,0,0,0.5)', marginTop: '4px' }}>
+                                      <div title="React" onClick={() => { setReactionMsgId(reactionMsgId === msg._id ? null : msg._id); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '6px' }}><Smile size={18} /></div>
+                                      {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo(msg); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '6px' }}><Reply size={18} /></div>}
+                                      {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '6px' }}><Pencil size={18} /></div>}
+                                      {isMine && !msg.deleted && <div title="Delete" onClick={() => { setActiveMenuMsgId(null); if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ color: '#EF4444', padding: '6px' }}><Trash2 size={18} /></div>}
+                                  </div>
+                                </>
+                            )}
 
                             {/* Reply Context Nested Block */}
                             {msg.replyTo && (() => {
@@ -543,14 +582,6 @@ const ChatApp = () => {
                   );
                 })
               )}
-              {Array.from(typingUsers.values()).map((name, i) => (
-                  <div key={`typing-${i}`} style={{ fontSize: '13px', color: '#64748B', fontStyle: 'italic', paddingLeft: '16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div className="typing-dots-anim">
-                         <span style={{ fontSize: '18px', lineHeight: 0}}>...</span> 
-                      </div>
-                      {name} is typing
-                  </div>
-              ))}
               <div ref={messagesEndRef} />
             </div>
 
@@ -611,11 +642,17 @@ const ChatApp = () => {
                     <span className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Add Media" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
                       <ImageIcon size={20} />
                     </span>
-                <input 
-                  type="text" 
+                <textarea 
                   value={msgContent}
                   onChange={handleTyping}
                   placeholder="Message the collaborative space..." 
+                  rows={Math.min(4, msgContent.split('\n').length || 1)}
+                  onKeyDown={(e) => {
+                     if (e.key === 'Enter' && !e.shiftKey) {
+                         e.preventDefault();
+                         handleSend(e);
+                     }
+                  }}
                   style={{ 
                     flex: 1, 
                     backgroundColor: 'transparent', 
@@ -624,7 +661,9 @@ const ChatApp = () => {
                     fontSize: '15px',
                     fontFamily: '"Inter", sans-serif',
                     outline: 'none',
-                    padding: '4px 0'
+                    padding: '8px 0',
+                    resize: 'none',
+                    maxHeight: '120px'
                   }} 
                 />
                 <button type="submit" disabled={!msgContent.trim()} style={{ 
