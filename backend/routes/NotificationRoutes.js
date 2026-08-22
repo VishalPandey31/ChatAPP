@@ -1,13 +1,13 @@
 import express from 'express';
 import User from '../models/User.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { authenticateUser } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // @route   POST /api/notifications/subscribe
 // @desc    Subscribe a device to push notifications
 // @access  Private
-router.post('/subscribe', protect, async (req, res) => {
+router.post('/subscribe', authenticateUser, async (req, res) => {
     try {
         const subscription = req.body;
         const user = await User.findById(req.user._id);
