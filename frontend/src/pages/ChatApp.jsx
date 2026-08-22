@@ -45,9 +45,9 @@ const ChatApp = () => {
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
   const pressTimer = useRef(null);
   const isTypingRef = useRef(false);
+  const textareaRef = useRef(null);
   
   const currentProject = projects.find(p => p._id === projectId);
 
@@ -180,6 +180,13 @@ const ChatApp = () => {
 
   const handleTyping = (e) => {
       setMsgContent(e.target.value);
+      
+      if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+          const newHeight = Math.min(textareaRef.current.scrollHeight, isMobile ? 120 : 160);
+          textareaRef.current.style.height = `${newHeight}px`;
+      }
+
       if (socket && projectId) {
           if (!isTypingRef.current) {
               isTypingRef.current = true;
@@ -207,6 +214,10 @@ const ChatApp = () => {
     setMsgContent('');
     setReplyingTo(null);
     setShowEmojiPicker(false);
+    if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto'; // Reset back
+    }
+    
     if (socket && typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
         socket.emit("stop_typing_project", { senderId: user._id, projectId });
@@ -662,10 +673,10 @@ const ChatApp = () => {
                       <ImageIcon size={20} />
                     </span>
                 <textarea 
+                  ref={textareaRef}
                   value={msgContent}
                   onChange={handleTyping}
                   placeholder="Message the collaborative space..." 
-                  rows={Math.min(4, msgContent.split('\n').length || 1)}
                   onKeyDown={(e) => {
                      if (e.key === 'Enter' && !e.shiftKey) {
                          e.preventDefault();
@@ -682,7 +693,8 @@ const ChatApp = () => {
                     outline: 'none',
                     padding: '8px 0',
                     resize: 'none',
-                    maxHeight: '120px'
+                    maxHeight: isMobile ? '120px' : '160px',
+                    overflowY: 'auto'
                   }} 
                 />
                 <button type="submit" disabled={!msgContent.trim()} style={{ 

@@ -53,7 +53,23 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
 
-    const clickUrl = event.notification.data.url || '/';
+    const data = event.notification.data || {};
+    const clickUrl = data.url || '/';
+
+    if (data.type === 'YOUTUBE_REDIRECT') {
+        const allowedDomains = ['youtube.com', 'www.youtube.com', 'youtu.be'];
+        try {
+            const urlObj = new URL(clickUrl);
+            if (allowedDomains.includes(urlObj.hostname) || clickUrl.includes('youtube.com')) {
+                event.waitUntil(clients.openWindow(clickUrl));
+            } else {
+                console.error("Invalid YouTube URL domain.");
+            }
+        } catch (err) {
+            console.error("Invalid URL format.");
+        }
+        return;
+    }
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {

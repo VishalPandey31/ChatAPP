@@ -214,7 +214,10 @@ export const socketHandler = (io) => {
                     const payload = JSON.stringify({
                         title: 'ChatApp Team',
                         body: 'New encrypted message',
-                        data: { url: '/chat/' + projectId }
+                        data: {
+                            url: '/chat/' + projectId,
+                            type: 'CHAT_MESSAGE'
+                        }
                     });
 
                     for (const u of receivers) {
