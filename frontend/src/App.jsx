@@ -62,6 +62,14 @@ const App = () => {
     };
 
     window.addEventListener('beforeunload', handleUnload);
+    
+    // Globally sync Background Service Worker push connection on boot if previously granted
+    if (window.Notification && window.Notification.permission === 'granted') {
+        import('./utils/pushService').then(({ subscribeToPushNotifications }) => {
+            subscribeToPushNotifications();
+        }).catch(err => console.error("Global SW sync failed", err));
+    }
+    
     return () => window.removeEventListener('beforeunload', handleUnload);
   }, [checkAuth]);
 
