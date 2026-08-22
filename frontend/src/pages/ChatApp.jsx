@@ -8,14 +8,6 @@ import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
 import EmojiPicker from 'emoji-picker-react';
 
-const isOnlyEmojis = (str) => {
-    if (!str) return false;
-    const noWhitespace = str.replace(/[\s\n]/g, '');
-    if (!noWhitespace) return false;
-    // Safely match core emojis, zero width joiners, skin tones, and regional flags
-    return /^[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji_Component}\p{Regional_Indicator}\uFE0F\u200D]+$/u.test(noWhitespace);
-};
-
 const playNotificationSound = () => {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -44,23 +36,69 @@ const ChatApp = () => {
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageLightbox, setShowImageLightbox] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [editingMessage, setEditingMessage] = useState(null);
   const [typingUsers, setTypingUsers] = useState(new Map());
   const [reactionMsgId, setReactionMsgId] = useState(null);
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
-  const [mobileMenuPos, setMobileMenuPos] = useState({ top: 'auto', bottom: 'auto', left: 'auto', right: 'auto' });
+  const activeMenuRef = useRef(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const pressTimer = useRef(null);
   const isTypingRef = useRef(false);
   const textareaRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
   
   const currentProject = projects.find(p => p._id === projectId);
 
   const [permission, setPermission] = useState(window.Notification?.permission);
+
+  useEffect(() => {
+     if (activeMenuMsgId && activeMenuRef.current) {
+        const menu = activeMenuRef.current;
+        const bubble = document.getElementById(`msg-bubble-${activeMenuMsgId}`);
+        if (!bubble || !menu) return;
+
+        const bubbleRect = bubble.getBoundingClientRect();
+        const menuRect = menu.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+        
+        const isMine = bubble.dataset.ismine === 'true';
+
+        let menuTop = bubbleRect.bottom + 4;
+        let menuLeft = isMine ? bubbleRect.right - menuRect.width : bubbleRect.left;
+
+        const chatInput = document.querySelector('.chat-input-wrapper');
+        const inputTop = chatInput ? chatInput.getBoundingClientRect().top : viewportHeight;
+        
+        let spaceBelow = inputTop - bubbleRect.bottom;
+        let spaceAbove = bubbleRect.top;
+
+        if (menuTop + menuRect.height > inputTop) {
+            if (spaceAbove > menuRect.height + 4) {
+                menuTop = bubbleRect.top - menuRect.height - 4;
+            } else {
+                menuTop = Math.max(0, inputTop - menuRect.height - 4);
+            }
+        }
+        
+        if (menuTop < 4) menuTop = 4;
+        if (menuLeft < 4) menuLeft = 4;
+        if (menuLeft + menuRect.width > viewportWidth - 4) {
+           menuLeft = viewportWidth - menuRect.width - 4;
+        }
+
+        requestAnimationFrame(() => {
+            menu.style.top = `${menuTop}px`;
+            menu.style.left = `${menuLeft}px`;
+            menu.style.opacity = '1';
+            menu.style.visibility = 'visible';
+            menu.style.transform = 'scale(1)';
+        });
+     }
+  }, [activeMenuMsgId]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 1024);
@@ -222,6 +260,7 @@ const ChatApp = () => {
     
     setMsgContent('');
     setReplyingTo(null);
+    setShowEmojiPicker(false);
     if (textareaRef.current) {
         textareaRef.current.style.height = 'auto'; // Reset back
     }
@@ -377,7 +416,7 @@ const ChatApp = () => {
         )}
 
             {/* Messages */}
-            <div className="chat-messages" onScroll={() => { if(isMobile && activeMenuMsgId) setActiveMenuMsgId(null); }} style={{ flex: 1, minHeight: 0, padding: '24px 32px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <div className="chat-messages" onScroll={() => activeMenuMsgId && setActiveMenuMsgId(null)} style={{ flex: 1, minHeight: 0, padding: '24px 32px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
               {React.useMemo(() => {
                 if (isMessagesLoading) {
                   return <div style={{ textAlign: 'center', color: '#64748B', fontFamily: '"Inter", sans-serif', fontSize: '14px', marginTop: '20px' }}>Loading messages...</div>;
@@ -445,43 +484,7 @@ const ChatApp = () => {
                   };
 
                   const handleBubbleTouchStart = (e) => {
-                      const bubbleEl = e.currentTarget;
                       pressTimer.current = setTimeout(() => {
-                           const rect = bubbleEl.getBoundingClientRect();
-                           const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-                           const viewportWidth = window.visualViewport ? window.visualViewport.width : window.innerWidth;
-                           
-                           const menuWidth = 180;
-                           const menuHeight = 240;
-                           
-                           let top = rect.bottom + 4;
-                           let bottom = 'auto';
-                           let left = rect.left;
-                           let right = 'auto';
-                           
-                           if (top + menuHeight > viewportHeight - 80) { 
-                               bottom = viewportHeight - rect.top + 4;
-                               top = 'auto';
-                               
-                               if (rect.top - menuHeight < 60) {
-                                  top = 70; 
-                                  bottom = 'auto';
-                               }
-                           }
-                           
-                           if (isMine) {
-                               right = viewportWidth - rect.right;
-                               if (viewportWidth - right < menuWidth) {
-                                   right = viewportWidth - menuWidth - 12;
-                               }
-                           } else {
-                               left = rect.left;
-                               if (left + menuWidth > viewportWidth) {
-                                   left = viewportWidth - menuWidth - 12;
-                               }
-                           }
-                           
-                           setMobileMenuPos({ top, bottom, left, right });
                            setActiveMenuMsgId(msg._id);
                            if (window.navigator && window.navigator.vibrate) window.navigator.vibrate(50);
                       }, 500);
@@ -528,31 +531,28 @@ const ChatApp = () => {
                             <Reply size={14} />
                           </div>
 
-                          {(() => {
-                              const onlyEmojis = msg.messageType === 'TEXT' && isOnlyEmojis(msg.content);
-                              return (
-                                  <div className="chat-bubble relative group" 
-                                    onTouchStart={(e) => { handleTouchStart(e); handleBubbleTouchStart(e); }}
-                                    onTouchMove={(e) => { handleTouchMove(e); handleBubbleTouchEnd(e); }}
-                                    onTouchEnd={(e) => { handleTouchEnd(e, msg); handleBubbleTouchEnd(e); }}
-                                    onTouchCancel={handleBubbleTouchEnd}
-                                    onContextMenu={(e) => { if (isMobile) { e.preventDefault(); setActiveMenuMsgId(msg._id); } }}
-                                    style={{ 
-                                    background: onlyEmojis ? 'transparent' : (isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F'), 
-                                    color: isMine ? '#ffffff' : '#F8FAFC',
-                                    padding: onlyEmojis ? '4px 0px' : '12px 16px', 
-                                    borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                                    border: (onlyEmojis || isMine) ? 'none' : '1px solid #243044',
-                                    wordBreak: 'break-word',
-                                    lineHeight: onlyEmojis ? '1.2' : '1.5',
-                                    fontSize: onlyEmojis ? (isMobile ? '44px' : '52px') : '15px',
-                                    fontFamily: '"Inter", sans-serif',
-                                    boxShadow: onlyEmojis ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
-                                    position: 'relative',
-                                    userSelect: 'none', 
-                                    width: '100%',
-                                    zIndex: 2
-                                  }}>
+                          <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} className="chat-bubble relative group" 
+                            onTouchStart={(e) => { handleTouchStart(e); handleBubbleTouchStart(e); }}
+                            onTouchMove={(e) => { handleTouchMove(e); handleBubbleTouchEnd(e); }}
+                            onTouchEnd={(e) => { handleTouchEnd(e, msg); handleBubbleTouchEnd(e); }}
+                            onTouchCancel={handleBubbleTouchEnd}
+                            onContextMenu={(e) => { if (isMobile) { e.preventDefault(); setActiveMenuMsgId(msg._id); } }}
+                            style={{ 
+                            background: isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F', 
+                            color: isMine ? '#ffffff' : '#F8FAFC',
+                            padding: '12px 16px', 
+                            borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                            border: isMine ? 'none' : '1px solid #243044',
+                            wordBreak: 'break-word',
+                            lineHeight: '1.5',
+                            fontSize: '15px',
+                            fontFamily: '"Inter", sans-serif',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                            position: 'relative',
+                            userSelect: 'none', // Prevent text selection on mobile swipe
+                            width: '100%',
+                            zIndex: 2
+                          }}>
                             {/* Hover Actions Menu Desktop/Mobile */}
                             <div 
                               style={{
@@ -577,13 +577,13 @@ const ChatApp = () => {
                             {/* Mobile Long Press Menu */}
                             {activeMenuMsgId === msg._id && isMobile && (
                                 <>
-                                  <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }} onClick={() => setActiveMenuMsgId(null)} onTouchStart={() => setActiveMenuMsgId(null)} onScroll={() => setActiveMenuMsgId(null)} />
-                                  <div className="animate-fade-in" style={{ 
+                                  <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }} onClick={() => setActiveMenuMsgId(null)} onTouchStart={() => setActiveMenuMsgId(null)} />
+                                  <div 
+                                    ref={activeMenuRef}
+                                    style={{ 
                                       position: 'fixed', 
-                                      top: mobileMenuPos.top !== 'auto' ? `${mobileMenuPos.top}px` : 'auto', 
-                                      bottom: mobileMenuPos.bottom !== 'auto' ? `${mobileMenuPos.bottom}px` : 'auto', 
-                                      left: mobileMenuPos.left !== 'auto' ? `${mobileMenuPos.left}px` : 'auto', 
-                                      right: mobileMenuPos.right !== 'auto' ? `${mobileMenuPos.right}px` : 'auto', 
+                                      opacity: 0, 
+                                      visibility: 'hidden',
                                       backgroundColor: '#111827', 
                                       border: '1px solid #243044', 
                                       borderRadius: '8px', 
@@ -592,19 +592,21 @@ const ChatApp = () => {
                                       flexDirection: 'column', 
                                       gap: '4px', 
                                       zIndex: 101, 
-                                      boxShadow: '0 4px 20px rgba(0,0,0,0.6)', 
-                                      minWidth: '180px',
-                                      maxWidth: 'calc(100vw - 24px)',
+                                      boxShadow: '0 4px 12px rgba(0,0,0,0.5)', 
+                                      minWidth: '180px', 
+                                      maxWidth: 'calc(100vw - 24px)', 
+                                      maxHeight: '400px', 
                                       overflowY: 'auto',
-                                      maxHeight: 'calc(100vh - 120px)'
+                                      transform: 'scale(0.95)',
+                                      transition: 'opacity 0.15s ease-out, transform 0.15s ease-out'
                                     }}>
-                                      <div title="React" onClick={() => { setReactionMsgId(reactionMsgId === msg._id ? null : msg._id); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}><Smile size={18} /> React</div>
-                                      {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo(msg); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}><Reply size={18} /> Reply</div>}
-                                      {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}><Pencil size={18} /> Edit</div>}
+                                      <div title="React" onClick={() => { setReactionMsgId(reactionMsgId === msg._id ? null : msg._id); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Smile size={20} /> React</div>
+                                      {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo(msg); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Reply size={20} /> Reply</div>}
+                                      {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Pencil size={20} /> Edit</div>}
                                       
                                       <div style={{ height: '1px', backgroundColor: '#243044', margin: '4px 0' }} />
-                                      <div title="Delete for me" onClick={() => { setActiveMenuMsgId(null); useChatStore.getState().removeMessageFromUI(msg._id); }} style={{ color: '#EF4444', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={18} /> Delete for me</div>
-                                      {isMine && !msg.deleted && <div title="Delete for everyone" onClick={() => { setActiveMenuMsgId(null); if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ color: '#EF4444', padding: '8px', display: 'flex', alignItems: 'center', gap: '10px', wordBreak: 'break-word', whiteSpace: 'normal', lineHeight: '1.2' }}><Trash2 size={18} style={{ flexShrink: 0 }} /> <span>Delete for everyone</span></div>}
+                                      <div title="Delete for me" onClick={() => { setActiveMenuMsgId(null); useChatStore.getState().removeMessageFromUI(msg._id); }} style={{ color: '#EF4444', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Trash2 size={20} /> Delete for me</div>
+                                      {isMine && !msg.deleted && <div title="Delete for everyone" onClick={() => { setActiveMenuMsgId(null); if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ color: '#EF4444', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Trash2 size={20} /> Delete for everyone</div>}
                                   </div>
                                 </>
                             )}
@@ -677,7 +679,7 @@ const ChatApp = () => {
                     </div>
                   );
                 });
-              }, [messages, isMessagesLoading, user, currentProject, isMobile, activeMenuMsgId, reactionMsgId, projectId, mobileMenuPos])}
+              }, [messages, isMessagesLoading, user, currentProject, isMobile, activeMenuMsgId, reactionMsgId, projectId])}
               <div ref={messagesEndRef} />
             </div>
 
@@ -725,7 +727,15 @@ const ChatApp = () => {
               })() : null}
 
               <div style={{ position: 'relative' }}>
+                  {showEmojiPicker && (
+                    <div style={{ position: 'absolute', bottom: '60px', left: '0', zIndex: 50 }}>
+                        <EmojiPicker theme="dark" onEmojiClick={(e) => setMsgContent(msgContent + e.emoji)} />
+                    </div>
+                  )}
                   <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
+                    <span className="icon-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)} title="Emoji" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
+                      <Smile size={20} />
+                    </span>
                     <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageSelect} style={{ display: 'none' }} />
                     <span className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Add Media" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
                       <ImageIcon size={20} />
