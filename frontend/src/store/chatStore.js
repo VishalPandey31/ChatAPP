@@ -71,13 +71,34 @@ export const useChatStore = create((set, get) => ({
         const socket = useAuthStore.getState().socket;
         if (!socket) return;
 
+        const clientMessageId = `msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
         const payload = {
             senderId: useAuthStore.getState().user._id,
             projectId,
             content,
-            messageType
+            messageType,
+            clientMessageId
         };
         if (replyToId) payload.replyTo = replyToId;
+
+        // Optimistic UI Update
+        const optimisticMsg = {
+            _id: clientMessageId, // temporary ID
+            clientMessageId,
+            sender: useAuthStore.getState().user,
+            projectId,
+            content,
+            messageType,
+            status: 'SENDING',
+            createdAt: new Date().toISOString()
+        };
+        if (replyToId) {
+            const replyMsg = get().messages.find(m => m._id === replyToId);
+            if (replyMsg) optimisticMsg.replyTo = replyMsg;
+        }
+
+        set(state => ({ messages: [...state.messages, optimisticMsg] }));
 
         socket.emit("send_project_message", payload);
     },
@@ -103,7 +124,53 @@ export const useChatStore = create((set, get) => ({
     },
 
     addMessage: (msg) => {
-        set((state) => ({ messages: [...state.messages, msg] }));
+        set((state) => {
+            // Replace if we have it optimistically
+            if (msg.clientMessageId) {
+                const existingIndex = state.messages.findIndex(m => m.clientMessageId === msg.clientMessageId);
+                if (existingIndex > -1) {
+                    const newMessages = [...state.messages];
+                    newMessages[existingIndex] = msg;
+                    return { messages: newMessages };
+                }
+            }
+            // Also prevent duplicates by _id
+            const dupIndex = state.messages.findIndex(m => m._id === msg._id);
+            if (dupIndex > -1) {
+                return state;
+            }
+            return { messages: [...state.messages, msg] };
+        });
+    },
+
+    updateMessage: (updatedMsg) => {
+        set((state) => ({
+            messages: state.messages.map(m => m._id === updatedMsg._id ? updatedMsg : m)
+        }));
+    },
+
+    deleteMessageLocally: (messageId) => {
+        set((state) => ({
+            messages: state.messages.map(m => m._id === messageId ? { ...m, deleted: true, content: 'This message was deleted' } : m)
+        }));
+    },
+
+    updateMessageStatus: (messageId, status) => {
+        set(state => ({
+            messages: state.messages.map(m => m._id === messageId ? { ...m, status } : m)
+        }));
+    },
+
+    updateProjectMessagesStatus: (projectId, status, readerId) => {
+        set(state => ({
+            messages: state.messages.map(m => {
+                const senderId = typeof m.sender === 'object' ? m.sender?._id : m.sender;
+                if (senderId !== readerId && m.status !== 'READ') {
+                    return { ...m, status: 'READ' };
+                }
+                return m;
+            })
+        }));
     },
 
     clearMessagesLocally: () => {

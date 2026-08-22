@@ -173,7 +173,7 @@ export const socketHandler = (io) => {
 
         socket.on("send_project_message", async (data) => {
             try {
-                const { senderId, projectId, content, messageType, replyTo } = data;
+                const { senderId, projectId, content, messageType, replyTo, clientMessageId } = data;
                 const sender = await User.findById(senderId);
 
                 if (!sender || !projectId) return;
@@ -191,6 +191,9 @@ export const socketHandler = (io) => {
                 };
                 if (replyTo) {
                     msgData.replyTo = replyTo;
+                }
+                if (clientMessageId) {
+                    msgData.clientMessageId = clientMessageId;
                 }
 
                 let msg = await Message.create(msgData);
@@ -249,6 +252,108 @@ export const socketHandler = (io) => {
             io.to(projectId).emit("chat_cleared");
         });
 
+        // Project Message Edit
+        socket.on("edit_project_message", async (data) => {
+            try {
+                const { messageId, senderId, newContent, projectId } = data;
+                const msg = await Message.findById(messageId);
+                if (msg && msg.sender.toString() === senderId && !msg.deleted) {
+                    msg.content = newContent;
+                    msg.edited = true;
+                    msg.editedAt = new Date();
+                    await msg.save();
+                    const populatedMsg = await Message.findById(messageId)
+                        .populate('sender', 'name email profilePicture')
+                        .populate({ path: 'replyTo', select: 'content sender' });
+                    io.to(projectId).emit("message_edited", populatedMsg);
+                }
+            } catch (err) { console.error("Edit error:", err); }
+        });
+
+        // Project Message Delete
+        socket.on("delete_project_message", async (data) => {
+            try {
+                const { messageId, senderId, projectId } = data;
+                const msg = await Message.findById(messageId);
+                if (msg && msg.sender.toString() === senderId) {
+                    msg.deleted = true;
+                    msg.deletedAt = new Date();
+                    msg.content = "This message was deleted";
+                    await msg.save();
+                    io.to(projectId).emit("message_deleted", { messageId, projectId });
+                }
+            } catch (err) { console.error("Delete error:", err); }
+        });
+
+        // Project Message Reaction
+        socket.on("project_message_reaction", async (data) => {
+            try {
+                const { messageId, userId, reaction, projectId } = data;
+                const msg = await Message.findById(messageId);
+                if (msg && !msg.deleted) {
+                    // check if user already reacted
+                    const existingIndex = msg.reactions.findIndex(r => r.user.toString() === userId);
+                    if (existingIndex > -1) {
+                        if (msg.reactions[existingIndex].reaction === reaction) {
+                            // toggle off
+                            msg.reactions.splice(existingIndex, 1);
+                        } else {
+                            // change reaction
+                            msg.reactions[existingIndex].reaction = reaction;
+                        }
+                    } else {
+                        // add reaction
+                        msg.reactions.push({ user: userId, reaction });
+                    }
+                    await msg.save();
+                    const populatedMsg = await Message.findById(messageId)
+                        .populate('sender', 'name email profilePicture')
+                        .populate({ path: 'replyTo', select: 'content sender' });
+                    io.to(projectId).emit("message_reaction_updated", populatedMsg);
+                }
+            } catch (err) { console.error("Reaction error:", err); }
+        });
+
+        // Ticks - Delivered & Seen for Project
+        socket.on("project_message_delivered", async (data) => {
+            try {
+                const { messageId, projectId, receiverId } = data;
+                const msg = await Message.findById(messageId);
+                if (msg && msg.sender.toString() !== receiverId && msg.status === 'SENT') {
+                    msg.status = 'DELIVERED';
+                    await msg.save();
+                    io.to(projectId).emit("message_status_update", { messageId, status: 'DELIVERED', projectId });
+                }
+            } catch (err) { }
+        });
+
+        socket.on("project_messages_seen", async (data) => {
+            try {
+                const { projectId, userId } = data;
+                // update all messages in project where status is not READ and sender is not userId
+                await Message.updateMany(
+                    { projectId, sender: { $ne: userId }, status: { $ne: 'READ' } },
+                    { $set: { status: 'READ' } }
+                );
+                io.to(projectId).emit("project_status_read", { projectId, readerId: userId });
+            } catch (err) { }
+        });
+
+        // Project Typing
+        socket.on("typing_project", ({ senderId, projectId }) => {
+            User.findById(senderId).then(user => {
+                if (user) {
+                    const name = user.name || user.email.split('@')[0];
+                    // socket.to broadcasts to everyone in room except sender
+                    socket.to(projectId).emit("display_typing_project", { senderId, projectId, name });
+                }
+            });
+        });
+
+        socket.on("stop_typing_project", ({ senderId, projectId }) => {
+            socket.to(projectId).emit("hide_typing_project", { senderId, projectId });
+        });
+
         socket.on("typing", ({ senderId, receiverId }) => {
             const receiverSockets = userSockets.get(receiverId);
             if (receiverSockets) {
@@ -263,7 +368,7 @@ export const socketHandler = (io) => {
             const userId = connectedUsers.get(socket.id);
             if (userId) {
                 connectedUsers.delete(socket.id);
-                
+
                 const socketsForUser = userSockets.get(userId);
                 if (socketsForUser) {
                     socketsForUser.delete(socket.id);

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useProjectStore } from '../store/projectStore';
-import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical } from 'lucide-react';
+import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical, Pencil, Check, CheckCheck, Clock } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
 import EmojiPicker from 'emoji-picker-react';
@@ -27,7 +27,7 @@ const playNotificationSound = () => {
 
 const ChatApp = () => {
   const { user, logout, socket, onlineUsers } = useAuthStore();
-  const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally } = useChatStore();
+  const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus } = useChatStore();
   const { projects, fetchProjects } = useProjectStore();
   const navigate = useNavigate();
   const { projectId } = useParams();
@@ -39,8 +39,12 @@ const ChatApp = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageLightbox, setShowImageLightbox] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [typingUsers, setTypingUsers] = useState(new Map());
+  const [reactionMsgId, setReactionMsgId] = useState(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
   
   const currentProject = projects.find(p => p._id === projectId);
 
@@ -88,6 +92,7 @@ const ChatApp = () => {
     if (socket && projectId) {
       // Connect to the specific project room
       socket.emit("join_project", projectId);
+      socket.emit("project_messages_seen", { projectId, userId: user._id });
 
       const handleReceiveMsg = (msg) => {
         // Since we are in the room, any message received is for this project
@@ -96,6 +101,8 @@ const ChatApp = () => {
         // Push Notification & Sound if not the sender
         const incomingSenderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
         if (incomingSenderId !== user._id) {
+            socket.emit("project_message_delivered", { messageId: msg._id, projectId, receiverId: user._id });
+            socket.emit("project_messages_seen", { projectId, userId: user._id });
             playNotificationSound();
             if (Notification.permission === 'granted') {
                 let senderDisplay = 'Teammate';
@@ -117,27 +124,76 @@ const ChatApp = () => {
       const handleClear = () => {
          clearMessagesLocally();
       };
+      const handleMessageEdited = (msg) => updateMessage(msg);
+      const handleMessageDeleted = ({messageId}) => deleteMessageLocally(messageId);
+      const handleReactionUpdated = (msg) => updateMessage(msg);
+      const handleStatusUpdate = ({messageId, status}) => updateMessageStatus(messageId, status);
+      const handleProjectRead = ({readerId}) => updateProjectMessagesStatus(projectId, 'READ', readerId);
+      const handleDisplayTyping = ({senderId, name}) => senderId !== user._id && setTypingUsers(prev => new Map(prev).set(senderId, name));
+      const handleHideTyping = ({senderId}) => {
+          setTypingUsers(prev => {
+              const newMap = new Map(prev);
+              newMap.delete(senderId);
+              return newMap;
+          });
+      };
+
       socket.on('chat_cleared', handleClear);
+      socket.on('message_edited', handleMessageEdited);
+      socket.on('message_deleted', handleMessageDeleted);
+      socket.on('message_reaction_updated', handleReactionUpdated);
+      socket.on('message_status_update', handleStatusUpdate);
+      socket.on('project_status_read', handleProjectRead);
+      socket.on('display_typing_project', handleDisplayTyping);
+      socket.on('hide_typing_project', handleHideTyping);
 
       return () => {
         socket.off('receive_project_message', handleReceiveMsg);
         socket.off('chat_cleared', handleClear);
+        socket.off('message_edited', handleMessageEdited);
+        socket.off('message_deleted', handleMessageDeleted);
+        socket.off('message_reaction_updated', handleReactionUpdated);
+        socket.off('message_status_update', handleStatusUpdate);
+        socket.off('project_status_read', handleProjectRead);
+        socket.off('display_typing_project', handleDisplayTyping);
+        socket.off('hide_typing_project', handleHideTyping);
       };
     }
-  }, [socket, projectId, addMessage]);
+  }, [socket, projectId, addMessage, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, user]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, typingUsers]);
+
+  const handleTyping = (e) => {
+      setMsgContent(e.target.value);
+      if (socket && projectId) {
+          socket.emit("typing_project", { senderId: user._id, projectId });
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => {
+              socket.emit("stop_typing_project", { senderId: user._id, projectId });
+          }, 2000);
+      }
+  };
 
   const handleSend = (e) => {
     e.preventDefault();
     if (!msgContent.trim() || !projectId) return;
     
-    sendProjectMessage(projectId, msgContent, replyingTo?._id, 'TEXT');
+    if (editingMessage) {
+        socket.emit("edit_project_message", { messageId: editingMessage._id, senderId: user._id, newContent: msgContent, projectId });
+        setEditingMessage(null);
+    } else {
+        sendProjectMessage(projectId, msgContent, replyingTo?._id, 'TEXT');
+    }
+    
     setMsgContent('');
     setReplyingTo(null);
     setShowEmojiPicker(false);
+    if (socket && typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        socket.emit("stop_typing_project", { senderId: user._id, projectId });
+    }
   };
 
   const handleImageSelect = (e) => {
@@ -347,8 +403,14 @@ const ChatApp = () => {
                           <span style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
                             {isMine ? (user.name || user.email.split('@')[0]) : senderDisplay}
                           </span>
-                          <span style={{ fontSize: '11px', color: '#64748B', fontFamily: '"Inter", sans-serif' }}>
+                          <span style={{ fontSize: '11px', color: '#64748B', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            {isMine && (
+                                msg.status === 'SENDING' ? <Clock size={12} opacity={0.6} /> :
+                                msg.status === 'READ' ? <CheckCheck size={14} color="#60A5FA" /> :
+                                msg.status === 'DELIVERED' ? <CheckCheck size={14} color="#94A3B8" /> :
+                                <Check size={14} color="#94A3B8" />
+                            )}
                           </span>
                         </div>
                         
@@ -391,34 +453,25 @@ const ChatApp = () => {
                             width: '100%',
                             zIndex: 2
                           }}>
-                            {/* Hover Reply Button (Desktop fallback) */}
+                            {/* Hover Actions Menu Desktop/Mobile */}
                             <div 
-                              title="Reply"
-                              onClick={() => setReplyingTo(msg)}
                               style={{
                                 position: 'absolute',
                                 top: '50%',
-                                [isMine ? 'left' : 'right']: '-44px',
+                                [isMine ? 'left' : 'right']: isMine ? (msg.deleted ? '-70px' : '-130px') : '-70px',
                                 transform: 'translateY(-50%)',
-                                width: '32px',
-                                height: '32px',
-                                borderRadius: '50%',
-                                backgroundColor: '#111827',
-                                border: '1px solid #243044',
                                 display: 'flex',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                cursor: 'pointer',
+                                gap: '6px',
                                 opacity: 0,
                                 visibility: 'hidden',
-                                transition: 'opacity 0.2s, background-color 0.2s',
-                                color: '#94A3B8'
+                                transition: 'opacity 0.2s',
                               }}
-                              onMouseEnter={(e) => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}
-                              className="reply-btn md-show-on-hover"
+                              className="md-show-on-hover"
                             >
-                              <Reply size={14} />
+                                <div title="React" onClick={() => setReactionMsgId(reactionMsgId === msg._id ? null : msg._id)} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Smile size={14} /></div>
+                                {!msg.deleted && <div title="Reply" onClick={() => setReplyingTo(msg)} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Reply size={14} /></div>}
+                                {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Pencil size={14} /></div>}
+                                {isMine && !msg.deleted && <div title="Delete" onClick={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Trash2 size={14} /></div>}
                             </div>
 
                             {/* Reply Context Nested Block */}
@@ -454,10 +507,34 @@ const ChatApp = () => {
                               );
                             })()}
                             
-                            {msg.messageType === 'IMAGE' ? (
+                            {msg.deleted ? (
+                                <div style={{ fontStyle: 'italic', color: isMine ? 'rgba(255,255,255,0.7)' : '#94A3B8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Trash2 size={14} opacity={0.6}/> This message was deleted
+                                </div>
+                            ) : msg.messageType === 'IMAGE' ? (
                                 <img src={msg.content} alt="Shared UI" draggable={false} style={{ maxWidth: '280px', maxHeight: '280px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => setShowImageLightbox(msg.content)} />
                             ) : (
                                 msg.content
+                            )}
+
+                            {msg.edited && !msg.deleted && <span style={{ fontSize: '11px', marginLeft: '6px', opacity: 0.7 }}>(edited)</span>}
+
+                            {/* Reactions */}
+                            {msg.reactions && msg.reactions.length > 0 && (
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
+                                    {Object.entries(msg.reactions.reduce((acc, r) => { acc[r.reaction] = (acc[r.reaction] || 0) + 1; return acc; }, {})).map(([emoji, count]) => (
+                                        <div key={emoji} onClick={() => { if (user) socket.emit("project_message_reaction", { messageId: msg._id, userId: user._id, reaction: emoji, projectId }); }} style={{ backgroundColor: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: '12px', fontSize: '12px', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                            {emoji} {count}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Reaction Picker Overlay */}
+                            {reactionMsgId === msg._id && (
+                                <div style={{ position: 'absolute', [isMine ? 'right' : 'left']: '0', top: '100%', zIndex: 10, marginTop: '4px', filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.5))' }}>
+                                    <EmojiPicker theme="dark" onEmojiClick={(e) => { socket.emit("project_message_reaction", { messageId: msg._id, userId: user._id, reaction: e.emoji, projectId }); setReactionMsgId(null); }} width={260} height={350} searchDisabled />
+                                </div>
                             )}
                           </div>
                         </div>
@@ -466,14 +543,34 @@ const ChatApp = () => {
                   );
                 })
               )}
+              {Array.from(typingUsers.values()).map((name, i) => (
+                  <div key={`typing-${i}`} style={{ fontSize: '13px', color: '#64748B', fontStyle: 'italic', paddingLeft: '16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div className="typing-dots-anim">
+                         <span style={{ fontSize: '18px', lineHeight: 0}}>...</span> 
+                      </div>
+                      {name} is typing
+                  </div>
+              ))}
               <div ref={messagesEndRef} />
             </div>
 
             {/* Input Area */}
             <div className="chat-input-wrapper" style={{ flexShrink: 0, padding: '0 32px', paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))', paddingTop: '10px', backgroundColor: '#0B1120' }}>
               
-              {/* Replying Preview Box */}
-              {replyingTo && (() => {
+              {/* Pre-input States (Editing/Replying) */}
+              {editingMessage ? (
+                <div className="animate-fade-in" style={{ backgroundColor: '#111827', padding: '12px 20px', borderRadius: '16px 16px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '4px solid #10B981', borderTop: '1px solid #243044', borderRight: '1px solid #243044' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#10B981', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Pencil size={14}/> Editing Message
+                    </span>
+                    <span style={{ fontSize: '13px', color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px', fontFamily: '"Inter", sans-serif' }}>
+                      {editingMessage.content}
+                    </span>
+                  </div>
+                  <X size={18} onClick={() => { setEditingMessage(null); setMsgContent(''); }} style={{ color: '#94A3B8', cursor: 'pointer' }} />
+                </div>
+              ) : replyingTo ? (() => {
                   const replyPreviewSenderId = typeof replyingTo.sender === 'object' ? replyingTo.sender?._id : replyingTo.sender;
                   let replyPreviewDisplay = 'Teammate';
                   if (replyPreviewSenderId === user._id) {
@@ -498,7 +595,7 @@ const ChatApp = () => {
                   <X size={18} onClick={() => setReplyingTo(null)} style={{ color: '#94A3B8', cursor: 'pointer' }} />
                 </div>
                 );
-              })()}
+              })() : null}
 
               <div style={{ position: 'relative' }}>
                   {showEmojiPicker && (
@@ -517,7 +614,7 @@ const ChatApp = () => {
                 <input 
                   type="text" 
                   value={msgContent}
-                  onChange={(e) => setMsgContent(e.target.value)}
+                  onChange={handleTyping}
                   placeholder="Message the collaborative space..." 
                   style={{ 
                     flex: 1, 
