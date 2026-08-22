@@ -110,14 +110,24 @@ const ChatApp = () => {
             if (Notification.permission === 'granted') {
                 let senderDisplay = 'Teammate';
                 if (typeof msg.sender === 'object' && msg.sender?.name) senderDisplay = msg.sender.name;
-                const notification = new Notification(`New message from ${senderDisplay}`, {
-                    body: msg.messageType === 'IMAGE' ? '📷 Image' : msg.content,
-                    requireInteraction: false
-                });
-                notification.onclick = () => {
-                    window.focus();
-                    notification.close();
-                };
+                
+                if (navigator.serviceWorker) {
+                    navigator.serviceWorker.ready.then(reg => {
+                        reg.showNotification(`New message from ${senderDisplay}`, {
+                            body: msg.messageType === 'IMAGE' ? '📷 Image' : msg.content,
+                            icon: '/favicon.svg',
+                            badge: '/favicon.svg',
+                            requireInteraction: false
+                        });
+                    });
+                } else {
+                    const notification = new Notification(`New message from ${senderDisplay}`, {
+                        body: msg.messageType === 'IMAGE' ? '📷 Image' : msg.content,
+                        icon: '/favicon.svg',
+                        requireInteraction: false
+                    });
+                    notification.onclick = () => { window.focus(); notification.close(); };
+                }
             }
         }
       };
