@@ -343,14 +343,8 @@ export const socketHandler = (io) => {
         });
 
         // Project Typing
-        socket.on("typing_project", ({ senderId, projectId }) => {
-            User.findById(senderId).then(user => {
-                if (user) {
-                    const name = user.name || user.email.split('@')[0];
-                    // socket.to broadcasts to everyone in room except sender
-                    socket.to(projectId).emit("display_typing_project", { senderId, projectId, name });
-                }
-            });
+        socket.on("typing_project", ({ senderId, projectId, name }) => {
+            socket.to(projectId).emit("display_typing_project", { senderId, projectId, name });
         });
 
         socket.on("stop_typing_project", ({ senderId, projectId }) => {

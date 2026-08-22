@@ -48,6 +48,7 @@ const ChatApp = () => {
   const fileInputRef = useRef(null);
   const pressTimer = useRef(null);
   const isTypingRef = useRef(false);
+  const typingTimeoutRef = useRef(null);
   const textareaRef = useRef(null);
   
   const currentProject = projects.find(p => p._id === projectId);
@@ -237,7 +238,7 @@ const ChatApp = () => {
       if (socket && projectId) {
           if (!isTypingRef.current) {
               isTypingRef.current = true;
-              socket.emit("typing_project", { senderId: user._id, projectId });
+              socket.emit("typing_project", { senderId: user._id, projectId, name: user.name || user.email.split('@')[0] });
           }
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
           typingTimeoutRef.current = setTimeout(() => {
