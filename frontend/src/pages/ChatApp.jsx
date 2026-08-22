@@ -47,6 +47,7 @@ const ChatApp = () => {
   const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const pressTimer = useRef(null);
+  const isTypingRef = useRef(false);
   
   const currentProject = projects.find(p => p._id === projectId);
 
@@ -170,11 +171,15 @@ const ChatApp = () => {
   const handleTyping = (e) => {
       setMsgContent(e.target.value);
       if (socket && projectId) {
-          socket.emit("typing_project", { senderId: user._id, projectId });
+          if (!isTypingRef.current) {
+              isTypingRef.current = true;
+              socket.emit("typing_project", { senderId: user._id, projectId });
+          }
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
           typingTimeoutRef.current = setTimeout(() => {
+              isTypingRef.current = false;
               socket.emit("stop_typing_project", { senderId: user._id, projectId });
-          }, 2000);
+          }, 1500);
       }
   };
 
@@ -343,7 +348,7 @@ const ChatApp = () => {
         )}
 
             {/* Messages */}
-            <div className="chat-messages" style={{ flex: 1, minHeight: 0, padding: '24px 32px', overflowY: 'auto' }}>
+            <div className="chat-messages" style={{ flex: 1, minHeight: 0, padding: '24px 32px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
               {isMessagesLoading ? (
                 <div style={{ textAlign: 'center', color: '#64748B', fontFamily: '"Inter", sans-serif', fontSize: '14px', marginTop: '20px' }}>Loading messages...</div>
               ) : (
