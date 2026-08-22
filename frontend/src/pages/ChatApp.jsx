@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
@@ -31,7 +32,6 @@ const ChatApp = () => {
   const { projects, fetchProjects } = useProjectStore();
   const navigate = useNavigate();
   const { projectId } = useParams();
-  const [msgContent, setMsgContent] = useState('');
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -109,8 +109,21 @@ const ChatApp = () => {
             subscribeToPushNotifications();
         });
     }
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible' && socket && projectId && user) {
+            socket.emit("project_messages_seen", { projectId, userId: user._id });
+        }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+        window.removeEventListener('resize', handleResize);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('focus', handleVisibilityChange);
+    }
+  }, [socket, projectId, user]);
 
   const handleEnablePush = async () => {
       const p = await Notification.requestPermission();
@@ -153,7 +166,11 @@ const ChatApp = () => {
         const incomingSenderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
         if (incomingSenderId !== user._id) {
             socket.emit("project_message_delivered", { messageId: msg._id, projectId, receiverId: user._id });
-            socket.emit("project_messages_seen", { projectId, userId: user._id });
+            
+            // Only emit SEEN if the user is actively looking at the window
+            if (document.visibilityState === 'visible' && document.hasFocus()) {
+                socket.emit("project_messages_seen", { projectId, userId: user._id });
+            }
             playNotificationSound();
             if (Notification.permission === 'granted') {
                 let senderDisplay = 'Teammate';
@@ -226,8 +243,21 @@ const ChatApp = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typingUsers]);
 
+  const updateSendButtonStyles = (val) => {
+      const btn = document.getElementById('chat-send-btn');
+      if (btn) {
+          const hasText = Boolean(val.trim());
+          btn.disabled = !hasText;
+          btn.style.backgroundColor = hasText ? '#2563EB' : '#1E293B';
+          btn.style.color = hasText ? 'white' : '#64748B';
+          btn.style.boxShadow = hasText ? '0 2px 8px rgba(37, 99, 235, 0.4)' : 'none';
+          btn.style.cursor = hasText ? 'pointer' : 'default';
+      }
+  };
+
   const handleTyping = (e) => {
-      setMsgContent(e.target.value);
+      const val = e.target.value;
+      updateSendButtonStyles(val);
       
       if (textareaRef.current) {
           textareaRef.current.style.height = 'auto';
@@ -250,21 +280,23 @@ const ChatApp = () => {
 
   const handleSend = (e) => {
     e.preventDefault();
-    if (!msgContent.trim() || !projectId) return;
+    const currentMessage = textareaRef.current?.value || '';
+    if (!currentMessage.trim() || !projectId) return;
     
     if (editingMessage) {
-        socket.emit("edit_project_message", { messageId: editingMessage._id, senderId: user._id, newContent: msgContent, projectId });
+        socket.emit("edit_project_message", { messageId: editingMessage._id, senderId: user._id, newContent: currentMessage, projectId });
         setEditingMessage(null);
     } else {
-        sendProjectMessage(projectId, msgContent, replyingTo?._id, 'TEXT');
+        sendProjectMessage(projectId, currentMessage, replyingTo?._id, 'TEXT');
     }
     
-    setMsgContent('');
     setReplyingTo(null);
     setShowEmojiPicker(false);
     if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'; // Reset back
+        textareaRef.current.value = '';
+        textareaRef.current.style.height = 'auto'; 
     }
+    updateSendButtonStyles('');
     
     if (socket && typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
@@ -684,6 +716,19 @@ const ChatApp = () => {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* Typing Indicator */}
+            {typingUsers.size > 0 && (
+                <div className="animate-fade-in" style={{ padding: '0 32px 10px 32px', fontSize: '13px', color: '#94A3B8', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                     <div style={{ display: 'flex', gap: '3px' }}>
+                          <span style={{ display: 'inline-block', width: '4px', height: '4px', backgroundColor: '#94A3B8', borderRadius: '50%', animation: 'typingBounce 1.4s infinite ease-in-out both', animationDelay: '-0.32s' }}></span>
+                          <span style={{ display: 'inline-block', width: '4px', height: '4px', backgroundColor: '#94A3B8', borderRadius: '50%', animation: 'typingBounce 1.4s infinite ease-in-out both', animationDelay: '-0.16s' }}></span>
+                          <span style={{ display: 'inline-block', width: '4px', height: '4px', backgroundColor: '#94A3B8', borderRadius: '50%', animation: 'typingBounce 1.4s infinite ease-in-out both' }}></span>
+                     </div>
+                     {Array.from(typingUsers.values()).join(', ')} is typing...
+                     <style>{`@keyframes typingBounce { 0%, 80%, 100% { transform: scale(0); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }`}</style>
+                </div>
+            )}
+
             {/* Input Area */}
             <div className="chat-input-wrapper" style={{ flexShrink: 0, padding: '0 32px', paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))', paddingTop: '10px', backgroundColor: '#0B1120' }}>
               
@@ -698,7 +743,7 @@ const ChatApp = () => {
                       {editingMessage.content}
                     </span>
                   </div>
-                  <X size={18} onClick={() => { setEditingMessage(null); setMsgContent(''); }} style={{ color: '#94A3B8', cursor: 'pointer' }} />
+                  <X size={18} onClick={() => { setEditingMessage(null); if (textareaRef.current) textareaRef.current.value = ''; updateSendButtonStyles(''); }} style={{ color: '#94A3B8', cursor: 'pointer' }} />
                 </div>
               ) : replyingTo ? (() => {
                   const replyPreviewSenderId = typeof replyingTo.sender === 'object' ? replyingTo.sender?._id : replyingTo.sender;
@@ -730,7 +775,17 @@ const ChatApp = () => {
               <div style={{ position: 'relative' }}>
                   {showEmojiPicker && (
                     <div style={{ position: 'absolute', bottom: '60px', left: '0', zIndex: 50 }}>
-                        <EmojiPicker theme="dark" onEmojiClick={(e) => setMsgContent(msgContent + e.emoji)} />
+                        <EmojiPicker theme="dark" onEmojiClick={(e) => {
+                            if (textareaRef.current) {
+                                const start = textareaRef.current.selectionStart;
+                                const end = textareaRef.current.selectionEnd;
+                                const text = textareaRef.current.value;
+                                const newText = text.substring(0, start) + e.emoji + text.substring(end);
+                                textareaRef.current.value = newText;
+                                textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + e.emoji.length;
+                                updateSendButtonStyles(newText);
+                            }
+                        }} />
                     </div>
                   )}
                   <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
@@ -743,7 +798,6 @@ const ChatApp = () => {
                     </span>
                 <textarea 
                   ref={textareaRef}
-                  value={msgContent}
                   onChange={handleTyping}
                   placeholder="Message the collaborative space..." 
                   onKeyDown={(e) => {
@@ -766,9 +820,9 @@ const ChatApp = () => {
                     overflowY: 'auto'
                   }} 
                 />
-                <button type="submit" disabled={!msgContent.trim()} style={{ 
-                  backgroundColor: msgContent.trim() ? '#2563EB' : '#1E293B', 
-                  color: msgContent.trim() ? 'white' : '#64748B', 
+                <button id="chat-send-btn" type="submit" disabled style={{ 
+                  backgroundColor: '#1E293B', 
+                  color: '#64748B', 
                   border: 'none', 
                   width: '40px', 
                   height: '40px', 
@@ -776,9 +830,9 @@ const ChatApp = () => {
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  cursor: msgContent.trim() ? 'pointer' : 'default',
+                  cursor: 'default',
                   transition: 'background-color 0.2s, box-shadow 0.2s',
-                  boxShadow: msgContent.trim() ? '0 2px 8px rgba(37, 99, 235, 0.4)' : 'none'
+                  boxShadow: 'none'
                 }}>
                   <SendIcon size={18} style={{ marginLeft: '2px' }} />
                 </button>

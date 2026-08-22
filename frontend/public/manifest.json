@@ -1,0 +1,21 @@
+{
+    "name": "Menifest Chat",
+    "short_name": "Menifest",
+    "description": "A collaborative secure chat system.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0B1120",
+    "theme_color": "#0B1120",
+    "icons": [
+        {
+            "src": "/favicon.svg",
+            "sizes": "192x192",
+            "type": "image/svg+xml"
+        },
+        {
+            "src": "/favicon.svg",
+            "sizes": "512x512",
+            "type": "image/svg+xml"
+        }
+    ]
+}

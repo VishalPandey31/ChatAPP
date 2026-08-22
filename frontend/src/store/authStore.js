@@ -81,17 +81,16 @@ export const useAuthStore = create((set, get) => ({
     },
     connectSocket: () => {
         const user = get().user;
-        if (!user || get().socket?.connected) return;
+        if (get().socket) return; // Prevent multiple socket initializations
 
         const socket = io(BACKEND_URL, {
-            query: { userId: user._id }
+            query: { userId: user._id },
+            autoConnect: false // Explicitly disable autoConnect to attach listeners first
         });
-        socket.connect();
 
         socket.on('connect', () => {
             socket.emit('join', user._id);
         });
-
 
         socket.on('initial_online_users', (userIds) => {
             set({ onlineUsers: userIds });
@@ -113,6 +112,7 @@ export const useAuthStore = create((set, get) => ({
             get().logout();
         });
 
+        socket.connect(); // Connect AFTER listeners are attached
         set({ socket });
     }
 }));
