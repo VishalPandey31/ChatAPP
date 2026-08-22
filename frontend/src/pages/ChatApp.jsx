@@ -537,7 +537,7 @@ const ChatApp = () => {
                             onTouchMove={(e) => { handleTouchMove(e); handleBubbleTouchEnd(e); }}
                             onTouchEnd={(e) => { handleTouchEnd(e, msg); handleBubbleTouchEnd(e); }}
                             onTouchCancel={handleBubbleTouchEnd}
-                            onContextMenu={(e) => { if (isMobile) { e.preventDefault(); setActiveMenuMsgId(msg._id); } }}
+                            onContextMenu={(e) => { if (isMobile) { e.preventDefault(); return; } e.preventDefault(); setActiveMenuMsgId(msg._id); }}
                             style={{ 
                             background: isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F', 
                             color: isMine ? '#ffffff' : '#F8FAFC',
@@ -575,10 +575,10 @@ const ChatApp = () => {
                                 {isMine && !msg.deleted && <div title="Delete" onClick={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Trash2 size={14} /></div>}
                             </div>
                             
-                            {/* Mobile Long Press Menu */}
-                            {activeMenuMsgId === msg._id && isMobile && (
+                            {/* Desktop Context Menu */}
+                            {activeMenuMsgId === msg._id && !isMobile && (
                                 <>
-                                  <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }} onClick={() => setActiveMenuMsgId(null)} onTouchStart={() => setActiveMenuMsgId(null)} />
+                                  <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }} onPointerDown={() => setActiveMenuMsgId(null)} onContextMenu={(e) => { e.preventDefault(); setActiveMenuMsgId(null); }} />
                                   <div 
                                     ref={activeMenuRef}
                                     style={{ 
@@ -800,6 +800,43 @@ const ChatApp = () => {
               <img src={showImageLightbox} style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain' }} alt="Lightbox" />
           </div>
       )}
+      {/* Mobile Bottom Action Sheet Portal */}
+      {isMobile && activeMenuMsgId && createPortal((
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', animation: 'fadeIn 0.2s forwards' }}>
+            <style>{`
+              @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+              @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            `}</style>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)' }} onPointerDown={(e) => { e.stopPropagation(); setActiveMenuMsgId(null); }} />
+            <div style={{ position: 'relative', backgroundColor: '#1E293B', borderTopLeftRadius: '24px', borderTopRightRadius: '24px', padding: '16px', paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 100000, boxShadow: '0 -4px 25px rgba(0,0,0,0.5)', animation: 'slideUp 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards' }}>
+                <div style={{ width: '40px', height: '4px', backgroundColor: '#334155', borderRadius: '4px', margin: '0 auto 16px auto' }} />
+                
+                {(() => {
+                   const activeMsg = messages.find(m => m._id === activeMenuMsgId);
+                   if (!activeMsg) return null;
+                   const senderId = typeof activeMsg.sender === 'object' ? activeMsg.sender?._id : activeMsg.sender;
+                   const isMine = senderId === user._id;
+
+                   const Item = ({ icon: Icon, label, color = '#F8FAFC', action }) => (
+                       <div onPointerDown={(e) => { e.stopPropagation(); setActiveMenuMsgId(null); action(); }} style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', fontSize: '16px', color, borderRadius: '12px', cursor: 'pointer', userSelect: 'none' }} onTouchStart={(e) => e.currentTarget.style.backgroundColor='rgba(255,255,255,0.05)'} onTouchEnd={(e) => e.currentTarget.style.backgroundColor='transparent'} onTouchCancel={(e) => e.currentTarget.style.backgroundColor='transparent'}>
+                           <Icon size={22} style={{ color: color === '#F8FAFC' ? '#94A3B8' : color }} />
+                           {label}
+                       </div>
+                   );
+
+                   return (
+                       <>
+                         <Item icon={Smile} label="React" action={() => setReactionMsgId(reactionMsgId === activeMsg._id ? null : activeMsg._id)} />
+                         {!activeMsg.deleted && <Item icon={Reply} label="Reply" action={() => setReplyingTo(activeMsg)} />}
+                         {isMine && !activeMsg.deleted && activeMsg.messageType === 'TEXT' && <Item icon={Pencil} label="Edit" action={() => { setEditingMessage(activeMsg); setMsgContent(activeMsg.content); }} />}
+                         {!activeMsg.deleted && <Item icon={Trash2} label="Delete for me" action={() => { deleteMessageLocally(activeMsg._id); }} />}
+                         {isMine && !activeMsg.deleted && <Item icon={Trash2} color="#EF4444" label="Delete for everyone" action={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: activeMsg._id, senderId: user._id, projectId }); }} />}
+                       </>
+                   );
+                })()}
+            </div>
+        </div>
+      ), document.body)}
     </div>
   );
 };
