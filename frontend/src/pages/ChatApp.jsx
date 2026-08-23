@@ -50,6 +50,7 @@ const renderMessageContent = (content) => {
 const formatLastSeen = (dateInput) => {
     if (!dateInput) return 'Offline';
     const date = new Date(dateInput);
+    if (isNaN(date.getTime())) return 'Offline';
     const now = new Date();
     const diffMs = now - date;
     const diffMin = Math.max(0, Math.floor(diffMs / 60000));
@@ -62,12 +63,12 @@ const formatLastSeen = (dateInput) => {
     
     if (diffMin < 1) return `Last seen just now`;
     if (diffMin < 60) return `Last seen ${diffMin} min ago`;
-    if (diffDays === 0) return `Last seen ${diffHrs} ${diffHrs === 1 ? 'hour' : 'hours'} ago`;
-    if (diffDays === 1) return `Last seen yesterday`;
+    if (diffDays === 0) return `last seen today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    if (diffDays === 1) return `last seen yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     
     const dateOptions = { day: 'numeric', month: 'short' };
     const dateStr = date.toLocaleDateString('en-GB', dateOptions);
-    return `Last seen on ${dateStr}`;
+    return `last seen on ${dateStr} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 };
 
 const ChatApp = () => {
@@ -125,6 +126,14 @@ const ChatApp = () => {
       return null;
   };
   const callTarget = getCallTarget();
+
+  useEffect(() => {
+      // Explicitly check presence on load/reconnect to fix any missed socket broadcasts
+      if (socket && callTarget) {
+          const targetId = callTarget._id ? callTarget._id.toString() : callTarget.toString();
+          socket.emit("check_presence", targetId);
+      }
+  }, [socket, callTarget]);
 
   useEffect(() => {
       if (socket) {
@@ -420,18 +429,12 @@ const ChatApp = () => {
               <span style={{ fontWeight: '600', fontSize: '16px', color: '#F8FAFC', letterSpacing: '0.3px', fontFamily: '"Inter", sans-serif' }}>
                  {currentProject ? currentProject.name : 'ChatApp'}
               </span>
-              <span style={{ fontSize: '12px', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
+              <span style={{ fontSize: '12px', color: '#94A3B8', fontFamily: '"Inter", sans-serif', minHeight: '15px' }}>
                 {(() => {
-                    if (!currentProject) return 'Offline';
-                    const otherMembers = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
-                        if (!m) return false;
-                        const mId = m._id ? m._id.toString() : m.toString();
-                        const uId = user._id ? user._id.toString() : user.toString();
-                        return mId !== uId;
-                    });
-                    const onlineCount = otherMembers.filter(m => onlineUsers.includes(m._id ? m._id.toString() : m.toString())).length;
+                    if (!callTarget) return 'Offline';
                     
-                    if (onlineCount > 0) {
+                    const targetId = callTarget._id ? callTarget._id.toString() : callTarget.toString();
+                    if (onlineUsers.includes(targetId)) {
                         return (
                             <span style={{ color: '#25D366', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#25D366' }} />
@@ -440,11 +443,11 @@ const ChatApp = () => {
                         );
                     }
                     
-                    if (otherMembers.length === 1) {
-                        return <span style={{ color: '#94A3B8' }}>{formatLastSeen(otherMembers[0].lastSeen)}</span>;
+                    if (callTarget.lastSeen) {
+                        return <span>{formatLastSeen(callTarget.lastSeen)}</span>;
                     }
-                    
-                    return <span style={{ color: '#94A3B8' }}>Offline</span>;
+
+                    return <span>Offline</span>;
                 })()}
               </span>
             </div>

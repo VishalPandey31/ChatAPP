@@ -50,6 +50,20 @@ export const socketHandler = (io) => {
             socket.emit("initial_online_users", currentOnlineUsers);
         });
 
+        // Explicit presence check (solves missed broadcast/background issues)
+        socket.on("check_presence", async (targetId) => {
+            if (!targetId) return;
+            const isOnline = userSockets.has(targetId);
+            if (isOnline) {
+                socket.emit("user_status", { userId: targetId, status: "online" });
+            } else {
+                const user = await User.findById(targetId).select('lastSeen');
+                if (user) {
+                    socket.emit("user_status", { userId: targetId, status: "offline", lastSeen: user.lastSeen });
+                }
+            }
+        });
+
         // Admin Approval Request
         socket.on("user:approval-request", async (data) => {
             // Find all admins
