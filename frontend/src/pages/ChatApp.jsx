@@ -89,16 +89,6 @@ const ChatApp = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [editingMessage, setEditingMessage] = useState(null);
   const [typingUsers, setTypingUsers] = useState(new Map());
-  const [showTeamModal, setShowTeamModal] = useState(false);
-  const [showActivityModal, setShowActivityModal] = useState(false);
-  const [replyingTo, setReplyingTo] = useState(null);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showImageLightbox, setShowImageLightbox] = useState(null);
-  const [pendingImage, setPendingImage] = useState(null);
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
-  const [editingMessage, setEditingMessage] = useState(null);
-  const [typingUsers, setTypingUsers] = useState(new Map());
   const [reactionMsgId, setReactionMsgId] = useState(null);
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
   const [timeTicker, setTimeTicker] = useState(Date.now());
