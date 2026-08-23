@@ -85,7 +85,7 @@ const ChatApp = () => {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageLightbox, setShowImageLightbox] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
+  const [pendingImage, setPendingImage] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [editingMessage, setEditingMessage] = useState(null);
   const [typingUsers, setTypingUsers] = useState(new Map());
@@ -317,23 +317,17 @@ const ChatApp = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typingUsers]);
 
-  const updateSendButtonStyles = (val = '') => {
+  const updateSendButtonStyles = (val) => {
       const btn = document.getElementById('chat-send-btn');
       if (btn) {
           const hasText = Boolean(val.trim());
-          const hasContent = hasText || Boolean(imagePreview);
-          btn.disabled = !hasContent;
-          btn.style.backgroundColor = hasContent ? '#2563EB' : '#1E293B';
-          btn.style.color = hasContent ? 'white' : '#64748B';
-          btn.style.boxShadow = hasContent ? '0 2px 8px rgba(37, 99, 235, 0.4)' : 'none';
-          btn.style.cursor = hasContent ? 'pointer' : 'default';
+          btn.disabled = !hasText;
+          btn.style.backgroundColor = hasText ? '#2563EB' : '#1E293B';
+          btn.style.color = hasText ? 'white' : '#64748B';
+          btn.style.boxShadow = hasText ? '0 2px 8px rgba(37, 99, 235, 0.4)' : 'none';
+          btn.style.cursor = hasText ? 'pointer' : 'default';
       }
   };
-
-  // Re-evaluate button styles whenever imagePreview changes
-  useEffect(() => {
-      updateSendButtonStyles(textareaRef.current?.value || '');
-  }, [imagePreview]);
 
   const handleTyping = (e) => {
       const val = e.target.value;
@@ -361,20 +355,30 @@ const ChatApp = () => {
   const handleSend = (e) => {
     e.preventDefault();
     const currentMessage = textareaRef.current?.value || '';
-    if (!currentMessage.trim() && !imagePreview) return;
+    
+    // Check if empty (no image and no text)
+    if (!pendingImage && !currentMessage.trim()) return;
     if (!projectId) return;
 
-    if (imagePreview) {
-        sendProjectMessage(projectId, imagePreview, replyingTo?._id, 'IMAGE');
-        setImagePreview(null);
-        if (currentMessage.trim()) {
-            sendProjectMessage(projectId, currentMessage, replyingTo?._id, 'TEXT');
+    if (pendingImage) {
+        sendProjectMessage(projectId, pendingImage, replyingTo?._id, 'IMAGE');
+        setPendingImage(null);
+    }
+    
+    if (currentMessage.trim()) {
+        if (editingMessage && !pendingImage) {
+            socket.emit("edit_project_message", { messageId: editingMessage._id, senderId: user._id, newContent: currentMessage, projectId });
+            setEditingMessage(null);
+        } else {
+            // Delay text slightly if sending with image to preserve visual order
+            if (pendingImage) {
+                setTimeout(() => {
+                    sendProjectMessage(projectId, currentMessage, replyingTo?._id, 'TEXT');
+                }, 100);
+            } else {
+                sendProjectMessage(projectId, currentMessage, replyingTo?._id, 'TEXT');
+            }
         }
-    } else if (editingMessage) {
-        socket.emit("edit_project_message", { messageId: editingMessage._id, senderId: user._id, newContent: currentMessage, projectId });
-        setEditingMessage(null);
-    } else {
-        sendProjectMessage(projectId, currentMessage, replyingTo?._id, 'TEXT');
     }
     
     setReplyingTo(null);
@@ -383,6 +387,7 @@ const ChatApp = () => {
         textareaRef.current.value = '';
         textareaRef.current.style.height = 'auto'; 
     }
+    if (fileInputRef.current) fileInputRef.current.value = '';
     updateSendButtonStyles('');
     
     if (socket && typingTimeoutRef.current) {
@@ -398,8 +403,8 @@ const ChatApp = () => {
     
     const reader = new FileReader();
     reader.onload = (event) => {
-       const base64String = event.target.result;
-       setImagePreview(base64String);
+       setPendingImage(event.target.result);
+       updateSendButtonStyles(event.target.result);
     };
     reader.readAsDataURL(file);
     e.target.value = ''; // reset so same file can be chosen again
@@ -710,7 +715,7 @@ const ChatApp = () => {
                             >
                                 <div title="React" onClick={() => setReactionMsgId(reactionMsgId === msg._id ? null : msg._id)} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Smile size={14} /></div>
                                 {!msg.deleted && <div title="Reply" onClick={() => setReplyingTo(msg)} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Reply size={14} /></div>}
-                                {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); if (textareaRef.current) { textareaRef.current.value = msg.content; textareaRef.current.focus(); updateSendButtonStyles(msg.content); } }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Pencil size={14} /></div>}
+                                {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Pencil size={14} /></div>}
                                 {isMine && !msg.deleted && <div title="Delete" onClick={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Trash2 size={14} /></div>}
                             </div>
                             
@@ -742,7 +747,7 @@ const ChatApp = () => {
                                     }}>
                                       <div title="React" onClick={() => { setReactionMsgId(reactionMsgId === msg._id ? null : msg._id); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Smile size={20} /> React</div>
                                       {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo(msg); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Reply size={20} /> Reply</div>}
-                                      {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Pencil size={20} /> Edit</div>}
+                                      {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); if(textareaRef.current) { textareaRef.current.value = msg.content; textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); } setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Pencil size={20} /> Edit</div>}
                                       
                                       <div style={{ height: '1px', backgroundColor: '#243044', margin: '4px 0' }} />
                                       <div title="Delete for me" onClick={() => { setActiveMenuMsgId(null); useChatStore.getState().removeMessageFromUI(msg._id); }} style={{ color: '#EF4444', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Trash2 size={20} /> Delete for me</div>
@@ -868,15 +873,20 @@ const ChatApp = () => {
                       {replyingTo.content}
                     </span>
                   </div>
-                  <X size={18} onClick={() => setReplyingTo(null)} style={{ color: '#94A3B8', cursor: 'pointer' }} />
                 </div>
                 );
               })() : null}
-
-              {imagePreview && (
-                  <div className="animate-fade-in" style={{ backgroundColor: '#111827', padding: '12px 20px', borderRadius: (editingMessage || replyingTo) ? '0' : '16px 16px 0 0', display: 'inline-block', borderTop: '1px solid #243044', borderLeft: '1px solid #243044', borderRight: '1px solid #243044', position: 'relative' }}>
-                      <img src={imagePreview} style={{ maxHeight: '120px', borderRadius: '8px', objectFit: 'contain' }} alt="Preview" />
-                      <X size={20} onClick={() => setImagePreview(null)} style={{ position: 'absolute', top: '16px', right: '24px', backgroundColor: 'rgba(0,0,0,0.6)', color: 'white', borderRadius: '50%', padding: '4px', cursor: 'pointer' }} />
+              
+              {/* Image Preview State */}
+              {pendingImage && (
+                  <div className="animate-fade-in" style={{ backgroundColor: '#111827', padding: '12px 20px', borderRadius: replyingTo || editingMessage ? '0' : '16px 16px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderTop: '1px solid #243044', borderRight: '1px solid #243044', borderLeft: '1px solid #243044' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '600', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
+                              Image Attachment
+                          </span>
+                          <img src={pendingImage} style={{ height: '80px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #243044' }} alt="Preview" />
+                      </div>
+                      <X size={18} onClick={() => { setPendingImage(null); updateSendButtonStyles(''); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ color: '#94A3B8', cursor: 'pointer', marginTop: '4px' }} />
                   </div>
               )}
 
@@ -899,7 +909,7 @@ const ChatApp = () => {
                         }} />
                     </div>
                   )}
-                  <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
+                  <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo || editingMessage || pendingImage ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
                     <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageSelect} style={{ display: 'none' }} />
                     <span className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Add Media" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
                       <ImageIcon size={20} />
@@ -990,7 +1000,7 @@ const ChatApp = () => {
                        <>
                          <Item icon={Smile} label="React" action={() => setReactionMsgId(reactionMsgId === activeMsg._id ? null : activeMsg._id)} />
                          {!activeMsg.deleted && <Item icon={Reply} label="Reply" action={() => setReplyingTo(activeMsg)} />}
-                         {isMine && !activeMsg.deleted && activeMsg.messageType === 'TEXT' && <Item icon={Pencil} label="Edit" action={() => { setEditingMessage(activeMsg); if (textareaRef.current) { textareaRef.current.value = activeMsg.content; textareaRef.current.focus(); updateSendButtonStyles(activeMsg.content); } }} />}
+                         {isMine && !activeMsg.deleted && activeMsg.messageType === 'TEXT' && <Item icon={Pencil} label="Edit" action={() => { setEditingMessage(activeMsg); if(textareaRef.current) { textareaRef.current.value = activeMsg.content; textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); } }} />}
                          {!activeMsg.deleted && <Item icon={Trash2} label="Delete for me" action={() => { deleteMessageLocally(activeMsg._id); }} />}
                          {isMine && !activeMsg.deleted && <Item icon={Trash2} color="#EF4444" label="Delete for everyone" action={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: activeMsg._id, senderId: user._id, projectId }); }} />}
                        </>
