@@ -158,8 +158,11 @@ export const useChatStore = create((set, get) => ({
      * Call this when opening a project chat.
      */
     setActiveRecipientId: (userId) => {
-        if (userId) sharedSecretCache.delete(userId); // clear stale cache
-        set({ activeRecipientId: userId || null });
+        const newId = userId || null;
+        if (get().activeRecipientId === newId) return; // Prevent infinite render / cache nuking loops
+
+        if (newId) sharedSecretCache.delete(newId); // clear stale cache on initial set
+        set({ activeRecipientId: newId });
     },
 
     sendMessage: async (receiverId, content) => {

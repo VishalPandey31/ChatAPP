@@ -127,14 +127,14 @@ const ChatApp = () => {
       return null;
   };
   const callTarget = getCallTarget();
+  const targetIdStr = callTarget ? (callTarget._id ? callTarget._id.toString() : callTarget.toString()) : null;
 
   useEffect(() => {
       // Explicitly check presence on load/reconnect to fix any missed socket broadcasts
-      if (socket && callTarget) {
-          const targetId = callTarget._id ? callTarget._id.toString() : callTarget.toString();
-          socket.emit("check_presence", targetId);
+      if (socket && targetIdStr) {
+          socket.emit("check_presence", targetIdStr);
       }
-  }, [socket, callTarget]);
+  }, [socket, targetIdStr]);
 
   useEffect(() => {
       if (socket) {
@@ -242,20 +242,23 @@ const ChatApp = () => {
     
     if (projectId) {
       getProjectMessages(projectId);
+    }
+  }, [user, navigate, projectId, getProjectMessages]);
+
+  useEffect(() => {
+    if (projectId && currentProject && user) {
       // Set E2EE encryption target: the OTHER person in this conversation
-      if (currentProject && user) {
-        const others = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
-          if (!m) return false;
-          const mId = (m._id || m).toString();
-          return mId !== user._id.toString();
-        });
-        if (others.length > 0) {
-          const recipientId = (others[0]._id || others[0]).toString();
-          setActiveRecipientId(recipientId);
-        }
+      const others = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
+        if (!m) return false;
+        const mId = (m._id || m).toString();
+        return mId !== user._id.toString();
+      });
+      if (others.length > 0) {
+        const recipientId = (others[0]._id || others[0]).toString();
+        setActiveRecipientId(recipientId);
       }
     }
-  }, [user, navigate, projectId, getProjectMessages, currentProject, setActiveRecipientId]);
+  }, [projectId, currentProject, user, setActiveRecipientId]);
 
   useEffect(() => {
     if (socket && projectId) {
