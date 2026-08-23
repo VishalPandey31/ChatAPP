@@ -369,6 +369,79 @@ export const socketHandler = (io) => {
             }
         });
 
+        // Voice Call Signaling
+        socket.on("call-user", async (data) => {
+            const { callerId, receiverId, callId, callerName } = data;
+            const receiverSockets = userSockets.get(receiverId);
+            if (receiverSockets && receiverSockets.size > 0) {
+                receiverSockets.forEach(socketId => {
+                    io.to(socketId).emit("incoming-call", { callerId, callerName, callId });
+                });
+            } else {
+                socket.emit("call-failed", { callId, reason: "User offline" });
+            }
+        });
+
+        socket.on("accept-call", (data) => {
+            const { callerId, receiverId, callId } = data;
+            const callerSockets = userSockets.get(callerId);
+            if (callerSockets) {
+                callerSockets.forEach(socketId => {
+                    io.to(socketId).emit("call-accepted", { receiverId, callId });
+                });
+            }
+        });
+
+        socket.on("reject-call", (data) => {
+            const { callerId, receiverId, callId, reason } = data;
+            const callerSockets = userSockets.get(callerId);
+            if (callerSockets) {
+                callerSockets.forEach(socketId => {
+                    io.to(socketId).emit("call-rejected", { receiverId, callId, reason: reason || "declined" });
+                });
+            }
+        });
+
+        socket.on("end-call", (data) => {
+            const { targetId, callId } = data;
+            const targetSockets = userSockets.get(targetId);
+            if (targetSockets) {
+                targetSockets.forEach(socketId => {
+                    io.to(socketId).emit("call-ended", { callId });
+                });
+            }
+        });
+
+        socket.on("webrtc-offer", (data) => {
+            const { targetId, offer, callId } = data;
+            const targetSockets = userSockets.get(targetId);
+            if (targetSockets) {
+                targetSockets.forEach(socketId => {
+                    io.to(socketId).emit("webrtc-offer", { offer, callId });
+                });
+            }
+        });
+
+        socket.on("webrtc-answer", (data) => {
+            const { targetId, answer, callId } = data;
+            const targetSockets = userSockets.get(targetId);
+            if (targetSockets) {
+                targetSockets.forEach(socketId => {
+                    io.to(socketId).emit("webrtc-answer", { answer, callId });
+                });
+            }
+        });
+
+        socket.on("webrtc-ice-candidate", (data) => {
+            const { targetId, candidate, callId } = data;
+            const targetSockets = userSockets.get(targetId);
+            if (targetSockets) {
+                targetSockets.forEach(socketId => {
+                    io.to(socketId).emit("webrtc-ice-candidate", { candidate, callId });
+                });
+            }
+        });
+
         socket.on("disconnect", () => {
             console.log("Client disconnected", socket.id);
             const userId = connectedUsers.get(socket.id);

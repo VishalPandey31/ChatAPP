@@ -8,6 +8,10 @@ import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIco
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
 import EmojiPicker from 'emoji-picker-react';
+import { useVoiceCallStore } from '../store/voiceCallStore';
+import IncomingCallModal from '../components/voice/IncomingCallModal';
+import ActiveCallOverlay from '../components/voice/ActiveCallOverlay';
+import VoiceCallButton from '../components/voice/VoiceCallButton';
 
 const playNotificationSound = () => {
     try {
@@ -68,6 +72,8 @@ const formatLastSeen = (dateInput) => {
 const ChatApp = () => {
   const { user, logout, socket, onlineUsers } = useAuthStore();
   const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus } = useChatStore();
+  const initVoiceListeners = useVoiceCallStore(s => s.initListeners);
+  const removeVoiceListeners = useVoiceCallStore(s => s.removeListeners);
   const { projects, fetchProjects } = useProjectStore();
   const navigate = useNavigate();
   const { projectId } = useParams();
@@ -94,6 +100,37 @@ const ChatApp = () => {
   const currentProject = projects.find(p => p._id === projectId);
 
   const [permission, setPermission] = useState(window.Notification?.permission);
+
+  const getCallTarget = () => {
+      if (!currentProject || !user) return null;
+      const otherMembers = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
+          if (!m) return false;
+          const mId = m._id ? m._id.toString() : m.toString();
+          const uId = user._id ? user._id.toString() : user.toString();
+          return String(mId) !== String(uId);
+      });
+      if (otherMembers.length > 0) return otherMembers[0];
+
+      // Deep fallback: grab from messages array
+      if (messages && messages.length > 0) {
+          const otherMsg = messages.find(msg => {
+              if (!msg || !msg.sender) return false;
+              const sId = msg.sender._id ? msg.sender._id.toString() : msg.sender.toString();
+              const uId = user._id ? user._id.toString() : user.toString();
+              return String(sId) !== String(uId);
+          });
+          if (otherMsg) return otherMsg.sender;
+      }
+      return null;
+  };
+  const callTarget = getCallTarget();
+
+  useEffect(() => {
+      if (socket) {
+          initVoiceListeners();
+          return () => removeVoiceListeners();
+      }
+  }, [socket, initVoiceListeners, removeVoiceListeners]);
 
   useEffect(() => {
      if (activeMenuMsgId && activeMenuRef.current) {
@@ -385,8 +422,13 @@ const ChatApp = () => {
               <span style={{ fontSize: '12px', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
                 {(() => {
                     if (!currentProject) return 'Offline';
-                    const otherMembers = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => m && (m._id || m) !== user._id);
-                    const onlineCount = otherMembers.filter(m => onlineUsers.includes(m._id || m)).length;
+                    const otherMembers = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
+                        if (!m) return false;
+                        const mId = m._id ? m._id.toString() : m.toString();
+                        const uId = user._id ? user._id.toString() : user.toString();
+                        return mId !== uId;
+                    });
+                    const onlineCount = otherMembers.filter(m => onlineUsers.includes(m._id ? m._id.toString() : m.toString())).length;
                     
                     if (onlineCount > 0) {
                         return (
@@ -407,7 +449,8 @@ const ChatApp = () => {
             </div>
           </div>
           {isMobile ? (
-            <div className="mobile-header-menu" style={{ position: 'relative' }}>
+            <div className="mobile-header-menu" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <VoiceCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', color: '#94A3B8' }} aria-label="Menu" aria-expanded={showMobileMenu} onClick={() => setShowMobileMenu(!showMobileMenu)}>
                 <MoreVertical size={20} />
               </span>
@@ -454,7 +497,8 @@ const ChatApp = () => {
               )}
             </div>
           ) : (
-            <div className="desktop-header-menu" style={{ display: 'flex', gap: '8px', color: '#94A3B8' }}>
+            <div className="desktop-header-menu" style={{ display: 'flex', gap: '8px', color: '#94A3B8', alignItems: 'center' }}>
+              <VoiceCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <span className="icon-btn" title="Search" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#111827'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
                 <Search size={18} />
               </span>
@@ -923,6 +967,10 @@ const ChatApp = () => {
             </div>
         </div>
       ), document.body)}
+      
+      {/* VOICE CALL UI */}
+      <IncomingCallModal />
+      <ActiveCallOverlay />
     </div>
   );
 };
