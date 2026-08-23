@@ -133,20 +133,11 @@ export const useChatStore = create((set, get) => ({
     getProjectMessages: async (projectId) => {
         set({ isMessagesLoading: true, currentProjectId: projectId });
         try {
-            // 10 second timeout so UI never hangs forever
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-            const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, {
-                credentials: 'include',
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-
+            const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, { credentials: 'include' });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
 
-            // INSTANT RENDER: show all messages immediately
+            // INSTANT RENDER: show all messages immediately with encrypted ones showing placeholder
             const instantMessages = data.map(msg => {
                 if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
                     return { ...msg, content: '🔒 Decrypting...', _needsDecrypt: true };
@@ -155,13 +146,8 @@ export const useChatStore = create((set, get) => ({
             });
             set({ messages: instantMessages, isMessagesLoading: false });
 
-            // PRE-WARM: fetch the shared key ONCE before decrypting all messages
+            // PROGRESSIVE DECRYPTION: decrypt in background, update one by one
             const { activeRecipientId } = get();
-            if (activeRecipientId) {
-                await getSharedSecret(activeRecipientId);
-            }
-
-            // PROGRESSIVE DECRYPTION: decrypt messages in background
             for (let i = 0; i < data.length; i++) {
                 const msg = data[i];
                 if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
@@ -178,12 +164,8 @@ export const useChatStore = create((set, get) => ({
                 }
             }
         } catch (error) {
-            if (error.name === 'AbortError') {
-                console.warn('[Chat] Message fetch timed out, retrying...');
-            } else {
-                console.error(error);
-            }
-            set({ messages: [], isMessagesLoading: false });
+            console.error(error);
+            set({ isMessagesLoading: false });
         }
     },
 

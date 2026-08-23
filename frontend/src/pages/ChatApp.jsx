@@ -241,21 +241,24 @@ const ChatApp = () => {
     }
     
     if (projectId) {
-      // CRITICAL: Set E2EE recipient BEFORE loading messages to avoid N individual key-fetch HTTP calls
-      if (currentProject) {
-        const others = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
-          if (!m) return false;
-          const mId = (m._id || m).toString();
-          return mId !== user._id.toString();
-        });
-        if (others.length > 0) {
-          const recipientId = (others[0]._id || others[0]).toString();
-          setActiveRecipientId(recipientId);
-        }
-      }
       getProjectMessages(projectId);
     }
-  }, [user, navigate, projectId, currentProject, getProjectMessages, setActiveRecipientId]);
+  }, [user, navigate, projectId, getProjectMessages]);
+
+  useEffect(() => {
+    if (projectId && currentProject && user) {
+      // Set E2EE encryption target: the OTHER person in this conversation
+      const others = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
+        if (!m) return false;
+        const mId = (m._id || m).toString();
+        return mId !== user._id.toString();
+      });
+      if (others.length > 0) {
+        const recipientId = (others[0]._id || others[0]).toString();
+        setActiveRecipientId(recipientId);
+      }
+    }
+  }, [projectId, currentProject, user, setActiveRecipientId]);
 
   useEffect(() => {
     if (socket && projectId) {
@@ -605,12 +608,14 @@ const ChatApp = () => {
                     const currentX = e.touches[0].clientX;
                     const diffX = currentX - startX;
                     
-                    // Only apply right-swiping up to 80px
-                    if (diffX > 0 && diffX < 80) {
+                    // Incoming (left side) -> swipe right. Outgoing (right side) -> swipe left
+                    const isValidSwipe = isMine ? (diffX < 0 && diffX > -80) : (diffX > 0 && diffX < 80);
+                    
+                    if (isValidSwipe) {
                        e.currentTarget.style.transform = `translateX(${diffX}px)`;
                        const icon = e.currentTarget.querySelector('.swipe-reply-icon');
                        if (icon) {
-                         icon.style.opacity = Math.min(diffX / 50, 1);
+                         icon.style.opacity = Math.min(Math.abs(diffX) / 50, 1);
                        }
                     }
                   };
@@ -630,7 +635,7 @@ const ChatApp = () => {
                        icon.style.opacity = 0;
                     }
 
-                    if (diffX > 50) {
+                    if ((!isMine && diffX > 50) || (isMine && diffX < -50)) {
                       setReplyingTo(msg);
                     }
                     
@@ -675,7 +680,7 @@ const ChatApp = () => {
                           {/* Swipe to reply icon indicator */}
                           <div className="swipe-reply-icon" style={{ 
                             position: 'absolute', 
-                            left: '-30px', 
+                            [isMine ? 'right' : 'left']: '-30px', 
                             opacity: 0, 
                             color: '#e2e8f0', 
                             backgroundColor: '#2563EB',
@@ -685,7 +690,7 @@ const ChatApp = () => {
                             justifyContent: 'center',
                             alignItems: 'center'
                           }}>
-                            <Reply size={14} />
+                            <Reply size={14} style={{ transform: isMine ? 'scaleX(-1)' : 'none' }} />
                           </div>
 
                           <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} className="chat-bubble relative group" 
@@ -794,8 +799,9 @@ const ChatApp = () => {
                                 <div style={{ fontWeight: '600', color: isMine ? '#BFDBFE' : '#60A5FA', marginBottom: '2px' }}>
                                   {replyDisplay}
                                 </div>
-                                <div style={{ color: isMine ? '#E0F2FE' : '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {msg.replyTo.content}
+                                <div style={{ color: isMine ? '#E0F2FE' : '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  {msg.replyTo.messageType === 'IMAGE' && <ImageIcon size={12} />}
+                                  {msg.replyTo.messageType === 'IMAGE' ? 'Photo' : msg.replyTo.content}
                                 </div>
                               </div>
                               );
@@ -877,14 +883,16 @@ const ChatApp = () => {
                   
                   return (
                 <div className="animate-fade-in" style={{ backgroundColor: '#111827', padding: '12px 20px', borderRadius: '16px 16px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '4px solid #2563EB', borderTop: '1px solid #243044', borderRight: '1px solid #243044' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
                     <span style={{ fontSize: '13px', fontWeight: '600', color: '#3B82F6', fontFamily: '"Inter", sans-serif' }}>
                       Replying to {replyPreviewDisplay}
                     </span>
-                    <span style={{ fontSize: '13px', color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px', fontFamily: '"Inter", sans-serif' }}>
-                      {replyingTo.content}
+                    <span style={{ fontSize: '13px', color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {replyingTo.messageType === 'IMAGE' && <ImageIcon size={12} />}
+                      {replyingTo.messageType === 'IMAGE' ? 'Photo' : replyingTo.content}
                     </span>
                   </div>
+                  <X size={18} onClick={() => setReplyingTo(null)} style={{ color: '#94A3B8', cursor: 'pointer', flexShrink: 0, paddingLeft: '8px' }} />
                 </div>
                 );
               })() : null}
