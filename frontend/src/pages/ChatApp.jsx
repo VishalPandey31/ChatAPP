@@ -396,17 +396,49 @@ const ChatApp = () => {
     }
   };
 
-  const handleImageSelect = (e) => {
+  const handleImageSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 20 * 1024 * 1024) return alert('File is too large! Maximum 20MB.');
-    
+
+    // Client-side compression to prevent exceeding MongoDB 16MB BSON limit for large 4K mobile photos
     const reader = new FileReader();
-    reader.onload = (event) => {
-       setPendingImage(event.target.result);
-       updateSendButtonStyles(event.target.result);
-    };
     reader.readAsDataURL(file);
+    reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+            const canvas = document.createElement("canvas");
+            let width = img.width;
+            let height = img.height;
+            
+            const MAX_WIDTH = 1200;
+            const MAX_HEIGHT = 1200;
+            
+            if (width > height) {
+                if (width > MAX_WIDTH) {
+                    height = Math.round((height * MAX_WIDTH) / width);
+                    width = MAX_WIDTH;
+                }
+            } else {
+                if (height > MAX_HEIGHT) {
+                    width = Math.round((width * MAX_HEIGHT) / height);
+                    height = MAX_HEIGHT;
+                }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // heavily compress as highly efficient jpeg
+            const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+            setPendingImage(compressedBase64);
+            updateSendButtonStyles(compressedBase64);
+        };
+    };
+    
     e.target.value = ''; // reset so same file can be chosen again
   };
   
