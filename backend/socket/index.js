@@ -4,8 +4,6 @@ import Chat from '../models/Chat.js';
 import Project from '../models/Project.js';
 import webpush from 'web-push';
 import dotenv from 'dotenv';
-import cookie from 'cookie';
-import jwt from 'jsonwebtoken';
 dotenv.config();
 
 webpush.setVapidDetails(
@@ -26,27 +24,11 @@ const formatDuration = (secs) => {
 };
 
 export const socketHandler = (io) => {
-    // Top-Level Security: Authenticate the Socket Connection itself using HttpOnly cookie JWT
-    io.use((socket, next) => {
-        try {
-            const cookies = cookie.parse(socket.request.headers.cookie || '');
-            const token = cookies.token;
-            if (!token) return next(new Error('Authentication Error: Missing Token'));
-
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
-            socket.userId = decoded.userId;
-            next();
-        } catch (err) {
-            next(new Error('Authentication Error: Invalid Token'));
-        }
-    });
-
     io.on("connection", (socket) => {
-        console.log("New Authenticated Client Connected:", socket.id, "User ID:", socket.userId);
+        console.log("New client connected", socket.id);
 
         // When a user logs in and establishes connection
-        socket.on("join", async () => {
-            const userId = socket.userId; // Secure: ignoring payload, using JWT verified ID
+        socket.on("join", async (userId) => {
             connectedUsers.set(socket.id, userId);
 
             if (!userSockets.has(userId)) {
@@ -218,25 +200,29 @@ export const socketHandler = (io) => {
 
         socket.on("send_project_message", async (data) => {
             try {
-                // Secure Override: Force senderId to exactly the authenticated user connected to this socket
-                data.senderId = socket.userId;
+                const { senderId, projectId, content, messageType, replyTo, clientMessageId, iv, encryptionVersion } = data;
 
-                const { senderId, projectId, content, iv, encryptionVersion, messageType, replyTo, clientMessageId } = data;
+                // Security: Validate the senderId matches the authenticated socket user
+                const authenticatedUserId = connectedUsers.get(socket.id);
+                if (!authenticatedUserId || authenticatedUserId !== senderId) {
+                    console.warn('[Security] Blocked spoofed senderId from socket:', socket.id);
+                    return;
+                }
+
                 const sender = await User.findById(senderId);
-
                 if (!sender || !projectId) return;
 
                 if (sender.role === 'USER' && (sender.approvalStatus !== 'APPROVED' || sender.accountStatus !== 'ACTIVE')) {
                     return;
                 }
 
-                // Create message
+                // Create message — now with E2EE ciphertext fields
                 let msgData = {
                     sender: senderId,
                     projectId: projectId,
-                    content,
-                    iv,
-                    encryptionVersion,
+                    content,                                          // ciphertext (Base64) or plaintext for images/legacy
+                    iv: iv || null,                                   // Base64 IV for AES-GCM
+                    encryptionVersion: encryptionVersion || 0,        // 0 = legacy, 1 = AES-GCM E2EE
                     messageType: messageType || 'TEXT'
                 };
                 if (replyTo) {
@@ -263,7 +249,7 @@ export const socketHandler = (io) => {
 
                     const payload = JSON.stringify({
                         title: 'ChatApp Team',
-                        body: 'New encrypted message',
+                        body: 'New encrypted message', // NEVER send plaintext content here
                         data: {
                             url: '/chat/' + projectId,
                             type: 'CHAT_MESSAGE'

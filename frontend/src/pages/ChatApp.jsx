@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useProjectStore } from '../store/projectStore';
-import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical, Pencil, Check, CheckCheck, Clock } from 'lucide-react';
+import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical, Pencil, Check, CheckCheck, Clock, Lock } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
 import EmojiPicker from 'emoji-picker-react';
@@ -73,7 +73,7 @@ const formatLastSeen = (dateInput) => {
 
 const ChatApp = () => {
   const { user, logout, socket, onlineUsers, lastSeenMap } = useAuthStore();
-  const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, editProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus } = useChatStore();
+  const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, setActiveRecipientId } = useChatStore();
   const initVoiceListeners = useVoiceCallStore(s => s.initListeners);
   const removeVoiceListeners = useVoiceCallStore(s => s.removeListeners);
   const { projects, fetchProjects } = useProjectStore();
@@ -242,8 +242,20 @@ const ChatApp = () => {
     
     if (projectId) {
       getProjectMessages(projectId);
+      // Set E2EE encryption target: the OTHER person in this conversation
+      if (currentProject && user) {
+        const others = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
+          if (!m) return false;
+          const mId = (m._id || m).toString();
+          return mId !== user._id.toString();
+        });
+        if (others.length > 0) {
+          const recipientId = (others[0]._id || others[0]).toString();
+          setActiveRecipientId(recipientId);
+        }
+      }
     }
-  }, [user, navigate, projectId, getProjectMessages]);
+  }, [user, navigate, projectId, getProjectMessages, currentProject, setActiveRecipientId]);
 
   useEffect(() => {
     if (socket && projectId) {
@@ -367,7 +379,7 @@ const ChatApp = () => {
     
     if (currentMessage.trim()) {
         if (editingMessage && !pendingImage) {
-            editProjectMessage(projectId, editingMessage._id, currentMessage);
+            socket.emit("edit_project_message", { messageId: editingMessage._id, senderId: user._id, newContent: currentMessage, projectId });
             setEditingMessage(null);
         } else {
             // Delay text slightly if sending with image to preserve visual order
@@ -396,49 +408,17 @@ const ChatApp = () => {
     }
   };
 
-  const handleImageSelect = async (e) => {
+  const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 20 * 1024 * 1024) return alert('File is too large! Maximum 20MB.');
-
-    // Client-side compression to prevent exceeding MongoDB 16MB BSON limit for large 4K mobile photos
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target.result;
-        img.onload = () => {
-            const canvas = document.createElement("canvas");
-            let width = img.width;
-            let height = img.height;
-            
-            const MAX_WIDTH = 1200;
-            const MAX_HEIGHT = 1200;
-            
-            if (width > height) {
-                if (width > MAX_WIDTH) {
-                    height = Math.round((height * MAX_WIDTH) / width);
-                    width = MAX_WIDTH;
-                }
-            } else {
-                if (height > MAX_HEIGHT) {
-                    width = Math.round((width * MAX_HEIGHT) / height);
-                    height = MAX_HEIGHT;
-                }
-            }
-            
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0, width, height);
-            
-            // heavily compress as highly efficient jpeg
-            const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
-            setPendingImage(compressedBase64);
-            updateSendButtonStyles(compressedBase64);
-        };
-    };
     
+    const reader = new FileReader();
+    reader.onload = (event) => {
+       setPendingImage(event.target.result);
+       updateSendButtonStyles(event.target.result);
+    };
+    reader.readAsDataURL(file);
     e.target.value = ''; // reset so same file can be chosen again
   };
   

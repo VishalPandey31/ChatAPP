@@ -2,30 +2,15 @@ import { create } from 'zustand';
 import { io } from 'socket.io-client';
 import Cookies from 'js-cookie';
 import { useProjectStore } from './projectStore';
-import { generateKeyPair, exportPublicKey, storeKeyPair, loadKeyPair } from '../utils/cryptoUtils';
+import {
+    generateKeyPair,
+    exportPublicKey,
+    exportPrivateKey,
+    importPrivateKey
+} from '../utils/cryptoUtils';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-
-const syncPublicKey = async (userId) => {
-    try {
-        let keyPair = await loadKeyPair(userId);
-        if (!keyPair) {
-            console.log("Generating new E2EE Key Pair...");
-            keyPair = await generateKeyPair();
-            await storeKeyPair(userId, keyPair);
-        }
-        const publicKeyBase64 = await exportPublicKey(keyPair.publicKey);
-        await fetch(`${BACKEND_URL}/api/auth/update-public-key`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ publicKey: publicKeyBase64 })
-        });
-        console.log("E2EE Public Key synced automatically.");
-    } catch (e) {
-        console.error("Error syncing public key:", e);
-    }
-};
+const PRIVATE_KEY_STORAGE_KEY = 'e2ee_private_key_jwk';
 
 export const useAuthStore = create((set, get) => ({
     user: null,
@@ -33,6 +18,53 @@ export const useAuthStore = create((set, get) => ({
     isCheckingAuth: true,
     onlineUsers: [],
     lastSeenMap: {},
+
+    // E2EE key pair for this session
+    myPrivateKey: null, // CryptoKey (in-memory only, not stored in state permanently)
+    myPublicKeyJwk: null, // JWK string (for sharing with backend)
+
+    _initE2EEKeys: async () => {
+        // Attempt to load existing private key from localStorage
+        try {
+            const storedJwk = localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
+            if (storedJwk) {
+                const privateKey = await importPrivateKey(storedJwk);
+                const keyPair = await generateKeyPair();
+                // We don't reuse the stored private key's public key easily without re-deriving,
+                // so we generate fresh keys every session (ephemeral, simpler to reason about)
+                const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
+                const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
+                localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, privKeyJwk);
+                set({ myPrivateKey: keyPair.privateKey, myPublicKeyJwk: pubKeyJwk });
+                return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk };
+            } else {
+                // Generate new keypair
+                const keyPair = await generateKeyPair();
+                const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
+                const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
+                localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, privKeyJwk);
+                set({ myPrivateKey: keyPair.privateKey, myPublicKeyJwk: pubKeyJwk });
+                return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk };
+            }
+        } catch (err) {
+            console.error('[E2EE] Failed to initialize keypair:', err);
+            return null;
+        }
+    },
+
+    _uploadPublicKey: async (publicKeyJwk) => {
+        try {
+            await fetch(`${BACKEND_URL}/api/auth/keys/upload`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ publicKey: publicKeyJwk })
+            });
+        } catch (err) {
+            console.error('[E2EE] Failed to upload public key:', err);
+        }
+    },
+
     login: async (credentials, isAdmin = false) => {
         try {
             const endpoint = isAdmin ? '/api/auth/admin/login' : '/api/auth/user/login';
@@ -46,8 +78,14 @@ export const useAuthStore = create((set, get) => ({
             if (!res.ok) throw new Error(data.message);
 
             set({ user: data });
-            await syncPublicKey(data._id);
             get().connectSocket();
+
+            // Generate and upload E2EE keys after login
+            const keys = await get()._initE2EEKeys();
+            if (keys) {
+                await get()._uploadPublicKey(keys.publicKeyJwk);
+            }
+
             return true;
         } catch (err) {
             console.error(err);
@@ -66,8 +104,14 @@ export const useAuthStore = create((set, get) => ({
             if (!res.ok) throw new Error(data.message);
 
             set({ user: data });
-            await syncPublicKey(data._id);
             get().connectSocket();
+
+            // Generate and upload E2EE keys after registration
+            const keys = await get()._initE2EEKeys();
+            if (keys) {
+                await get()._uploadPublicKey(keys.publicKeyJwk);
+            }
+
             return true;
         } catch (err) {
             console.error(err);
@@ -83,8 +127,10 @@ export const useAuthStore = create((set, get) => ({
             });
             const socket = get().socket;
             if (socket) socket.disconnect();
-            set({ user: null, socket: null, onlineUsers: [] });
+            set({ user: null, socket: null, onlineUsers: [], myPrivateKey: null, myPublicKeyJwk: null });
             Cookies.remove('token');
+            // Note: we intentionally keep the private key in localStorage for session resumption
+            // but it regenerates each login anyway (ephemeral design)
 
             import('../utils/pushService').then(({ unsubscribeFromPushNotifications }) => {
                 unsubscribeFromPushNotifications();
@@ -110,7 +156,6 @@ export const useAuthStore = create((set, get) => ({
 
         const socket = io(BACKEND_URL, {
             query: { userId: user._id },
-            withCredentials: true,
             autoConnect: false // Explicitly disable autoConnect to attach listeners first
         });
 

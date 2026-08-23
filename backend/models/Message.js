@@ -20,14 +20,15 @@ const messageSchema = new mongoose.Schema({
     },
     content: {
         type: String,
-        required: true
+        required: true  // Stores plaintext for legacy, ciphertext (Base64) for E2EE messages
     },
     iv: {
-        type: String, // Initialization Vector (Base64) for E2EE
+        type: String,   // Base64 IV for AES-GCM (only present when encryptionVersion >= 1)
+        default: null
     },
     encryptionVersion: {
-        type: Number, // Example: 1 for AES-GCM
-        default: 0 // 0 means unencrypted legacy plaintext
+        type: Number,   // 0 = legacy plaintext, 1 = AES-GCM E2EE
+        default: 0
     },
     messageType: {
         type: String,

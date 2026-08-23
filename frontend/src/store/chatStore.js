@@ -1,7 +1,71 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
+import {
+    importPublicKey,
+    deriveSharedSecret,
+    encryptMessage,
+    decryptMessage,
+} from '../utils/cryptoUtils';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
+// In-memory cache of derived shared secrets per userId
+// Map<userId → CryptoKey>
+const sharedSecretCache = new Map();
+
+/**
+ * Fetch the recipient's public key from backend and derive a shared AES-GCM secret.
+ * Returns the CryptoKey or null if E2EE is unavailable.
+ */
+async function getSharedSecret(recipientId) {
+    if (sharedSecretCache.has(recipientId)) {
+        return sharedSecretCache.get(recipientId);
+    }
+
+    const myPrivateKey = useAuthStore.getState().myPrivateKey;
+    if (!myPrivateKey) return null;
+
+    try {
+        const res = await fetch(`${BACKEND_URL}/api/auth/keys/${recipientId}`, {
+            credentials: 'include'
+        });
+        if (!res.ok) return null;
+        const { publicKey: pubKeyJwk } = await res.json();
+        const recipientPublicKey = await importPublicKey(pubKeyJwk);
+        const sharedKey = await deriveSharedSecret(myPrivateKey, recipientPublicKey);
+        sharedSecretCache.set(recipientId, sharedKey);
+        return sharedKey;
+    } catch (err) {
+        console.error('[E2EE] Failed to derive shared secret for', recipientId, err);
+        return null;
+    }
+}
+
+/**
+ * Decrypt a single message object. If it can't be decrypted, show a safe fallback.
+ */
+async function decryptSingleMessage(msg) {
+    // Only attempt decryption on TEXT messages with encryptionVersion ≥ 1
+    if (!msg || msg.encryptionVersion !== 1 || msg.messageType !== 'TEXT' || msg.deleted) {
+        return msg;
+    }
+
+    try {
+        // Determine the OTHER person's ID to derive shared secret
+        const myId = useAuthStore.getState().user?._id;
+        const senderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
+        const recipientId = senderId === myId ? msg.receiver : senderId;
+        if (!recipientId) return msg;
+
+        const sharedKey = await getSharedSecret(recipientId.toString());
+        if (!sharedKey) return { ...msg, content: '🔒 Unable to decrypt — key unavailable' };
+
+        const plaintext = await decryptMessage(msg.content, msg.iv, sharedKey);
+        return { ...msg, content: plaintext };
+    } catch (err) {
+        return { ...msg, content: '⚠️ Message decryption failed' };
+    }
+}
 
 export const useChatStore = create((set, get) => ({
     chats: [],
@@ -46,34 +110,9 @@ export const useChatStore = create((set, get) => ({
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
 
-            // At this point, `data` is an array of Message objects.
-            // Some are legacy plaintext (encryptionVersion: 0), some are Base64 ciphertext (encryptionVersion: 1).
-            // We must map and conditionally decrypt them before they hit the UI.
-
-            const me = useAuthStore.getState().user;
-            const project = useProjectStore.getState().projects.find(p => p._id === projectId);
-            const myKeyPair = await loadKeyPair(me._id);
-
-            let sharedSecret = null;
-            if (project && myKeyPair) {
-                const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
-                const otherUser = allMembers.find(m => m._id !== me._id);
-                if (otherUser && otherUser.publicKey) {
-                    const importedPubKey = await importPublicKey(otherUser.publicKey);
-                    if (importedPubKey) sharedSecret = await deriveSecretKey(myKeyPair.privateKey, importedPubKey);
-                }
-            }
-
-            const decryptedMessages = await Promise.all(data.map(async (msg) => {
-                if (msg.encryptionVersion === 1 && sharedSecret) {
-                    // Try to decrypt
-                    const plaintext = await decryptMessage(msg.content, msg.iv, sharedSecret);
-                    return { ...msg, content: plaintext };
-                }
-                return msg;
-            }));
-
-            set({ messages: decryptedMessages });
+            // Decrypt E2EE messages on the client before setting into state
+            const decrypted = await Promise.all(data.map(decryptSingleMessage));
+            set({ messages: decrypted });
         } catch (error) {
             console.error(error);
         } finally {
@@ -86,7 +125,6 @@ export const useChatStore = create((set, get) => ({
     },
 
     sendMessage: async (receiverId, content) => {
-        // Obsolete function, usually bypasses project flow. Re-route to sendProjectMessage if heavily used.
         const socket = useAuthStore.getState().socket;
         if (!socket) return;
         socket.emit("send_message", {
@@ -102,53 +140,52 @@ export const useChatStore = create((set, get) => ({
         if (!socket) return;
 
         const clientMessageId = `msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-
-        const me = useAuthStore.getState().user;
-        const project = useProjectStore.getState().projects.find(p => p._id === projectId);
+        const currentUser = useAuthStore.getState().user;
 
         let finalContent = content;
-        let finalIv = null;
-        let finalVersion = 0; // default to legacy (0)
+        let iv = null;
+        let encryptionVersion = 0;
 
-        if (project && messageType !== 'CALL_RECORD') {
-            const myKeyPair = await loadKeyPair(me._id);
-            const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
-            const otherUser = allMembers.find(m => m._id !== me._id);
-
-            if (myKeyPair && otherUser && otherUser.publicKey) {
-                const importedPubKey = await importPublicKey(otherUser.publicKey);
-                if (importedPubKey) {
-                    const sharedSecret = await deriveSecretKey(myKeyPair.privateKey, importedPubKey);
-                    if (sharedSecret) {
-                        const encrypted = await encryptMessage(content, sharedSecret);
-                        if (encrypted) {
-                            finalContent = encrypted.ciphertext;
-                            finalIv = encrypted.iv;
-                            finalVersion = 1;
-                        }
+        // Only encrypt TEXT messages (not images, call records, etc.)
+        if (messageType === 'TEXT' && content && typeof content === 'string') {
+            // Determine recipient: need the "other" user's ID for key exchange
+            // In a project chat we use the stored receiver context
+            const { activeRecipientId } = get();
+            if (activeRecipientId) {
+                try {
+                    const sharedKey = await getSharedSecret(activeRecipientId);
+                    if (sharedKey) {
+                        const encrypted = await encryptMessage(content, sharedKey);
+                        finalContent = encrypted.ciphertext;
+                        iv = encrypted.iv;
+                        encryptionVersion = 1;
                     }
+                } catch (err) {
+                    console.error('[E2EE] Encryption failed, falling back to plaintext:', err);
                 }
             }
         }
 
         const payload = {
-            senderId: me._id,
+            senderId: currentUser._id,
             projectId,
             content: finalContent,
-            iv: finalIv,
-            encryptionVersion: finalVersion,
+            iv,
+            encryptionVersion,
             messageType,
             clientMessageId
         };
         if (replyToId) payload.replyTo = replyToId;
 
-        // Optimistic UI Update (should render the plaintext, not the ciphertext)
+        // Optimistic UI Update — always show plaintext to the sender
         const optimisticMsg = {
-            _id: clientMessageId, // temporary ID
+            _id: clientMessageId,
             clientMessageId,
-            sender: me,
+            sender: currentUser,
             projectId,
-            content, // the UI always reads the original plaintext!
+            content, // show original plaintext to sender
+            iv,
+            encryptionVersion,
             messageType,
             status: 'SENDING',
             createdAt: new Date().toISOString()
@@ -159,49 +196,13 @@ export const useChatStore = create((set, get) => ({
         }
 
         set(state => ({ messages: [...state.messages, optimisticMsg] }));
-
         socket.emit("send_project_message", payload);
     },
 
-    editProjectMessage: async (projectId, messageId, newContent) => {
-        const socket = useAuthStore.getState().socket;
-        const me = useAuthStore.getState().user;
-        if (!socket || !me) return;
-
-        const project = useProjectStore.getState().projects.find(p => p._id === projectId);
-        let finalContent = newContent;
-
-        if (project) {
-            const myKeyPair = await loadKeyPair(me._id);
-            const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
-            const otherUser = allMembers.find(m => m._id !== me._id);
-
-            if (myKeyPair && otherUser && otherUser.publicKey) {
-                const importedPubKey = await importPublicKey(otherUser.publicKey);
-                if (importedPubKey) {
-                    const sharedSecret = await deriveSecretKey(myKeyPair.privateKey, importedPubKey);
-                    if (sharedSecret) {
-                        const encrypted = await encryptMessage(newContent, sharedSecret);
-                        if (encrypted) {
-                            finalContent = encrypted.ciphertext;
-                            // Note: backend uses the old IV, so we just overwrite content
-                        }
-                    }
-                }
-            }
-        }
-
-        // Optimistic UI update (shows plaintext)
-        set((state) => ({
-            messages: state.messages.map(m => m._id === messageId ? { ...m, content: newContent, edited: true } : m)
-        }));
-
-        socket.emit("edit_project_message", {
-            messageId,
-            senderId: me._id,
-            newContent: finalContent,
-            projectId
-        });
+    // Set the active recipient so we know who to encrypt for
+    setActiveRecipientId: (userId) => {
+        sharedSecretCache.delete(userId); // clear cache when switching recipients
+        set({ activeRecipientId: userId });
     },
 
     clearProjectChat: async (projectId) => {
@@ -214,10 +215,8 @@ export const useChatStore = create((set, get) => ({
                 const data = await res.json();
                 throw new Error(data.message);
             }
-            // Emit socket to clear for everyone
             const socket = useAuthStore.getState().socket;
             if (socket) socket.emit("clear_project_chat", projectId);
-
             set({ messages: [] });
         } catch (error) {
             console.error("Error clearing chat:", error);
@@ -225,43 +224,21 @@ export const useChatStore = create((set, get) => ({
     },
 
     addMessage: async (msg) => {
-        let finalMsg = { ...msg };
-        if (msg.encryptionVersion === 1) {
-            const me = useAuthStore.getState().user;
-            const project = useProjectStore.getState().projects.find(p => p._id === msg.projectId);
-            if (me && project) {
-                const myKeyPair = await loadKeyPair(me._id);
-                const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
-                const otherUser = allMembers.find(m => m._id !== me._id);
-                if (myKeyPair && otherUser && otherUser.publicKey) {
-                    const importedPubKey = await importPublicKey(otherUser.publicKey);
-                    if (importedPubKey) {
-                        const sharedSecret = await deriveSecretKey(myKeyPair.privateKey, importedPubKey);
-                        if (sharedSecret) {
-                            const plaintext = await decryptMessage(msg.content, msg.iv, sharedSecret);
-                            finalMsg.content = plaintext;
-                        }
-                    }
-                }
-            }
-        }
+        // Decrypt incoming message before inserting into state
+        const decryptedMsg = await decryptSingleMessage(msg);
 
         set((state) => {
-            // Replace if we have it optimistically
-            if (finalMsg.clientMessageId) {
-                const existingIndex = state.messages.findIndex(m => m.clientMessageId === finalMsg.clientMessageId);
+            if (decryptedMsg.clientMessageId) {
+                const existingIndex = state.messages.findIndex(m => m.clientMessageId === decryptedMsg.clientMessageId);
                 if (existingIndex > -1) {
                     const newMessages = [...state.messages];
-                    newMessages[existingIndex] = finalMsg;
+                    newMessages[existingIndex] = decryptedMsg;
                     return { messages: newMessages };
                 }
             }
-            // Also prevent duplicates by _id
-            const dupIndex = state.messages.findIndex(m => m._id === finalMsg._id);
-            if (dupIndex > -1) {
-                return state;
-            }
-            return { messages: [...state.messages, finalMsg] };
+            const dupIndex = state.messages.findIndex(m => m._id === decryptedMsg._id);
+            if (dupIndex > -1) return state;
+            return { messages: [...state.messages, decryptedMsg] };
         });
     },
 

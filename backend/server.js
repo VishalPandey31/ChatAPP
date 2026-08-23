@@ -6,6 +6,8 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
@@ -15,24 +17,20 @@ import { socketHandler } from './socket/index.js';
 
 dotenv.config();
 
-import helmet from "helmet";
-import rateLimit from "express-rate-limit";
-
-// Rate limiter for auth endpoints (brute-force protection)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // limit each IP to 50 requests per windowMs
-  message: { message: "Too many authentication attempts from this IP, please try again after 15 minutes." }
-});
-
 const app = express();
 const server = http.createServer(app);
 
-// Use Helmet for basic HTTP Security Headers
+// --------------------------------------------------
+// Security: HTTP Headers (Helmet)
+// --------------------------------------------------
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  contentSecurityPolicy: false, // CSP would block Surge+Socket.io inline scripts — disabled for now
+  crossOriginEmbedderPolicy: false,
 }));
 
+// --------------------------------------------------
+// CORS — Strict origin list
+// --------------------------------------------------
 app.use(cors({
   origin: [process.env.FRONTEND_URL, "http://localhost:5173", "https://menifestation.surge.sh"],
   credentials: true,
@@ -42,7 +40,31 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ limit: '20mb', extended: true }));
 app.use(cookieParser());
 
-app.use('/api/auth', authLimiter, authRoutes);
+// --------------------------------------------------
+// Rate Limiting
+// --------------------------------------------------
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minute window
+  max: 200,                   // Max 200 requests per window per IP globally
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests, please try again later.' }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,                   // Strict: 20 attempts per 15 minutes on auth routes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many authentication attempts. Please wait 15 minutes.' }
+});
+
+app.use(globalLimiter);
+app.use('/api/auth/admin/login', authLimiter);
+app.use('/api/auth/user/login', authLimiter);
+app.use('/api/auth/admin/register', authLimiter);
+
+app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/projects', projectRoutes);

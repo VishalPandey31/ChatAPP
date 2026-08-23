@@ -47,7 +47,7 @@ const userSchema = new mongoose.Schema({
         default: []
     },
     publicKey: {
-        type: String,
+        type: String, // E2EE Public Key (JWK JSON string)
         default: null
     }
 }, { timestamps: true });

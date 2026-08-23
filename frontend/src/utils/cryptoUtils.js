@@ -1,179 +1,166 @@
-// WebCrypto API Utility Functions for ECDH Key Exchange and AES-GCM Encryption
+/**
+ * E2EE Crypto Utilities using WebCrypto API
+ * - ECDH (P-256) for Key Agreement
+ * - AES-GCM (256-bit) for Authenticated Encryption
+ */
 
-const EC_ALGO = { name: "ECDH", namedCurve: "P-256" };
-const AES_ALGO = { name: "AES-GCM", length: 256 };
+/**
+ * Generate an ECDH KeyPair for the user on their device.
+ * Private key remains non-exportable where possible (though for demo we might need to store in IDB or local storage, ideally protected).
+ */
+export async function generateKeyPair() {
+    const keyPair = await window.crypto.subtle.generateKey(
+        {
+            name: "ECDH",
+            namedCurve: "P-256"
+        },
+        true, // extractable (needed to store locally or export public key)
+        ["deriveKey"]
+    );
+    return keyPair;
+}
 
-// Helper to convert ArrayBuffer to Base64
-const bufferToBase64 = (buffer) => {
-    return btoa(String.fromCharCode(...new Uint8Array(buffer)));
-};
+/**
+ * Export the Public Key to a JWK string to send to the server.
+ */
+export async function exportPublicKey(publicKey) {
+    const exported = await window.crypto.subtle.exportKey("jwk", publicKey);
+    return JSON.stringify(exported);
+}
 
-// Helper to convert Base64 to ArrayBuffer
-const base64ToBuffer = (base64) => {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
+/**
+ * Import a Public Key JWK string from the server.
+ */
+export async function importPublicKey(jwkString) {
+    const jwk = JSON.parse(jwkString);
+    return await window.crypto.subtle.importKey(
+        "jwk",
+        jwk,
+        {
+            name: "ECDH",
+            namedCurve: "P-256"
+        },
+        true,
+        []
+    );
+}
+
+/**
+ * Export Private Key to store locally (e.g. IndexedDB/LocalStorage).
+ * In production this should ideally be wrapped/encrypted by a user password.
+ */
+export async function exportPrivateKey(privateKey) {
+    const exported = await window.crypto.subtle.exportKey("jwk", privateKey);
+    return JSON.stringify(exported);
+}
+
+/**
+ * Import Private Key from local storage.
+ */
+export async function importPrivateKey(jwkString) {
+    const jwk = JSON.parse(jwkString);
+    return await window.crypto.subtle.importKey(
+        "jwk",
+        jwk,
+        {
+            name: "ECDH",
+            namedCurve: "P-256"
+        },
+        true,
+        ["deriveKey"]
+    );
+}
+
+/**
+ * Derive a shared AES-GCM secret using my Private Key + their Public Key.
+ */
+export async function deriveSharedSecret(myPrivateKey, theirPublicKey) {
+    return await window.crypto.subtle.deriveKey(
+        {
+            name: "ECDH",
+            public: theirPublicKey
+        },
+        myPrivateKey,
+        {
+            name: "AES-GCM",
+            length: 256
+        },
+        false, // not exportable
+        ["encrypt", "decrypt"]
+    );
+}
+
+/**
+ * Encrypt a plaintext string using the shared AES-GCM key.
+ * Returns { ciphertext: Base64, iv: Base64 }
+ */
+export async function encryptMessage(text, sharedKey) {
+    const enc = new TextEncoder();
+    const encodedText = enc.encode(text);
+
+    // Generate a random 96-bit IV for AES-GCM
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+    const cipherBuffer = await window.crypto.subtle.encrypt(
+        {
+            name: "AES-GCM",
+            iv: iv
+        },
+        sharedKey,
+        encodedText
+    );
+
+    // Convert buffers to Base64
+    const ciphertextBase64 = bufferToBase64(cipherBuffer);
+    const ivBase64 = bufferToBase64(iv);
+
+    return {
+        ciphertext: ciphertextBase64,
+        iv: ivBase64
+    };
+}
+
+/**
+ * Decrypt a Base64 ciphertext using the shared AES-GCM key and IV.
+ */
+export async function decryptMessage(ciphertextBase64, ivBase64, sharedKey) {
+    const cipherBuffer = base64ToBuffer(ciphertextBase64);
+    const iv = new Uint8Array(base64ToBuffer(ivBase64));
+
+    try {
+        const decryptedBuffer = await window.crypto.subtle.decrypt(
+            {
+                name: "AES-GCM",
+                iv: iv
+            },
+            sharedKey,
+            cipherBuffer
+        );
+        const dec = new TextDecoder();
+        return dec.decode(decryptedBuffer);
+    } catch (e) {
+        console.error("Decryption failed. Signature mismatch or wrong key.", e);
+        throw new Error("Unable to decrypt message");
+    }
+}
+
+// Helpers
+export function bufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
+}
+
+export function base64ToBuffer(base64) {
+    const binary_string = window.atob(base64);
+    const len = binary_string.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
     }
     return bytes.buffer;
-};
-
-export const generateKeyPair = async () => {
-    try {
-        const keyPair = await window.crypto.subtle.generateKey(
-            EC_ALGO,
-            true, // extractable
-            ["deriveKey", "deriveBits"]
-        );
-        return keyPair;
-    } catch (e) {
-        console.error("Error generating key pair:", e);
-        return null;
-    }
-};
-
-export const exportPublicKey = async (publicKey) => {
-    try {
-        const exported = await window.crypto.subtle.exportKey("spki", publicKey);
-        return bufferToBase64(exported);
-    } catch (e) {
-        console.error("Error exporting public key:", e);
-        return null;
-    }
-};
-
-export const importPublicKey = async (spkiBase64) => {
-    try {
-        const buffer = base64ToBuffer(spkiBase64);
-        return await window.crypto.subtle.importKey(
-            "spki",
-            buffer,
-            EC_ALGO,
-            true,
-            []
-        );
-    } catch (e) {
-        console.error("Error importing public key:", e);
-        return null;
-    }
-};
-
-export const deriveSecretKey = async (privateKey, remotePublicKey) => {
-    try {
-        return await window.crypto.subtle.deriveKey(
-            {
-                name: "ECDH",
-                public: remotePublicKey
-            },
-            privateKey,
-            AES_ALGO,
-            false, // don't allow extracting the raw shared secret
-            ["encrypt", "decrypt"]
-        );
-    } catch (e) {
-        console.error("Error deriving secret key:", e);
-        return null;
-    }
-};
-
-export const encryptMessage = async (text, secretKey) => {
-    try {
-        const iv = window.crypto.getRandomValues(new Uint8Array(12));
-        const encodedText = new TextEncoder().encode(text);
-
-        const ciphertextBuffer = await window.crypto.subtle.encrypt(
-            { name: "AES-GCM", iv },
-            secretKey,
-            encodedText
-        );
-
-        return {
-            ciphertext: bufferToBase64(ciphertextBuffer),
-            iv: bufferToBase64(iv.buffer)
-        };
-    } catch (e) {
-        console.error("Encryption error:", e);
-        return null;
-    }
-};
-
-export const decryptMessage = async (ciphertextBase64, ivBase64, secretKey) => {
-    try {
-        const ciphertextBuffer = base64ToBuffer(ciphertextBase64);
-        const ivBuffer = base64ToBuffer(ivBase64);
-
-        const decryptedBuffer = await window.crypto.subtle.decrypt(
-            { name: "AES-GCM", iv: ivBuffer },
-            secretKey,
-            ciphertextBuffer
-        );
-
-        return new TextDecoder().decode(decryptedBuffer);
-    } catch (e) {
-        // Not throwing to avoid complete UI crashes on bad payloads
-        console.warn("Decryption error (might be wrong key or corrupted data):", e);
-        return "[Unable to decrypt message]";
-    }
-};
-
-// Store KeyPair securely (for simplicity using IndexedDB wrapped in Promises)
-export const storeKeyPair = async (userId, keyPair) => {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open("ChatAppCryptoDB", 1);
-
-        request.onupgradeneeded = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains("keys")) {
-                db.createObjectStore("keys", { keyPath: "userId" });
-            }
-        };
-
-        request.onsuccess = (e) => {
-            const db = e.target.result;
-            const tx = db.transaction("keys", "readwrite");
-            const store = tx.objectStore("keys");
-            store.put({ userId, ...keyPair });
-            tx.oncomplete = () => resolve(true);
-            tx.onerror = () => reject(tx.error);
-        };
-
-        request.onerror = () => reject(request.error);
-    });
-};
-
-export const loadKeyPair = async (userId) => {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open("ChatAppCryptoDB", 1);
-
-        request.onupgradeneeded = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains("keys")) {
-                db.createObjectStore("keys", { keyPath: "userId" });
-            }
-        };
-
-        request.onsuccess = (e) => {
-            const db = e.target.result;
-            // Check if store exists in case DB was upgraded somewhere else
-            if (!db.objectStoreNames.contains("keys")) {
-                resolve(null);
-                return;
-            }
-            const tx = db.transaction("keys", "readonly");
-            const store = tx.objectStore("keys");
-            const getReq = store.get(userId);
-
-            getReq.onsuccess = () => {
-                const data = getReq.result;
-                if (data) {
-                    resolve({ publicKey: data.publicKey, privateKey: data.privateKey });
-                } else {
-                    resolve(null);
-                }
-            };
-            getReq.onerror = () => reject(getReq.error);
-        };
-
-        request.onerror = () => reject(request.error);
-    });
-};
+}

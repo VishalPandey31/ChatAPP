@@ -156,14 +156,29 @@ export const getMe = async (req, res) => {
     }
 };
 
-// @desc Update user ECDH public key
-export const updatePublicKey = async (req, res) => {
+// @desc Upload / Update E2EE Public Key for this user
+export const uploadPublicKey = async (req, res) => {
     try {
         const { publicKey } = req.body;
-        if (!publicKey) return res.status(400).json({ message: 'Public key missing' });
-
+        if (!publicKey || typeof publicKey !== 'string' || publicKey.length > 2048) {
+            return res.status(400).json({ message: 'Invalid public key format.' });
+        }
         await User.findByIdAndUpdate(req.user._id, { publicKey });
-        res.status(200).json({ message: 'Public key updated' });
+        res.status(200).json({ message: 'Public key registered successfully.' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc Fetch another user's E2EE Public Key by userId
+export const getPublicKey = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const user = await User.findById(userId).select('publicKey name');
+        if (!user) return res.status(404).json({ message: 'User not found.' });
+        if (!user.publicKey) return res.status(404).json({ message: 'Public key not registered for this user.' });
+        res.status(200).json({ publicKey: user.publicKey });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
