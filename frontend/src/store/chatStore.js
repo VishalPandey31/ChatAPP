@@ -81,7 +81,20 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         }
 
         const plaintext = await decryptMessage(msg.content, msg.iv, sharedKey);
-        return { ...msg, content: plaintext };
+        const decryptedMsg = { ...msg, content: plaintext };
+
+        // Recursively decrypt nested reply message content
+        if (decryptedMsg.replyTo && decryptedMsg.replyTo.encryptionVersion === 1 && decryptedMsg.replyTo.messageType === 'TEXT' && !decryptedMsg.replyTo.deleted) {
+            try {
+                const replyPlaintext = await decryptMessage(decryptedMsg.replyTo.content, decryptedMsg.replyTo.iv, sharedKey);
+                decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: replyPlaintext };
+            } catch (replyErr) {
+                console.warn('[E2EE] Nested reply decryption failed', replyErr.message);
+                decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: '⚠️ Message decryption failed' };
+            }
+        }
+
+        return decryptedMsg;
     } catch (err) {
         // Any error (wrong key, corrupted cipher, etc.) — show safe fallback
         console.warn('[E2EE] Decryption failed for message', msg._id, err.message);
