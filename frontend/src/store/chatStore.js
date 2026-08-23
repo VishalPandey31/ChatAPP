@@ -9,6 +9,7 @@ export const useChatStore = create((set, get) => ({
     activeChat: null,
     isChatsLoading: false,
     isMessagesLoading: false,
+    currentProjectId: null,
 
     getChats: async () => {
         set({ isChatsLoading: true });
@@ -39,7 +40,7 @@ export const useChatStore = create((set, get) => ({
     },
 
     getProjectMessages: async (projectId) => {
-        set({ isMessagesLoading: true });
+        set({ isMessagesLoading: true, currentProjectId: projectId });
         try {
             const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, { credentials: 'include' });
             const data = await res.json();

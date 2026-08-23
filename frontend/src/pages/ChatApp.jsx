@@ -12,6 +12,7 @@ import { useVoiceCallStore } from '../store/voiceCallStore';
 import IncomingCallModal from '../components/voice/IncomingCallModal';
 import ActiveCallOverlay from '../components/voice/ActiveCallOverlay';
 import VoiceCallButton from '../components/voice/VoiceCallButton';
+import CallRecordBubble from '../components/voice/CallRecordBubble';
 
 const playNotificationSound = () => {
     try {
@@ -537,6 +538,11 @@ const ChatApp = () => {
                   return <div style={{ textAlign: 'center', color: '#64748B', fontFamily: '"Inter", sans-serif', fontSize: '14px', marginTop: '20px' }}>Loading messages...</div>;
                 }
                 return messages.map((msg, index) => {
+                  // CALL_RECORD: render as call bubble, skip normal message rendering
+                  if (msg.messageType === 'CALL_RECORD') {
+                      return <CallRecordBubble key={msg._id || index} message={msg} />;
+                  }
+
                   const senderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
                   const isMine = senderId === user._id;
                   

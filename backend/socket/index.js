@@ -15,6 +15,14 @@ webpush.setVapidDetails(
 let connectedUsers = new Map(); // socket.id -> userId
 let userSockets = new Map(); // userId -> Set of socket.id
 
+const formatDuration = (secs) => {
+    if (!secs || secs < 1) return '0 secs';
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    if (m === 0) return `${s} sec${s !== 1 ? 's' : ''}`;
+    return s > 0 ? `${m} min${m !== 1 ? 's' : ''} ${s} sec${s !== 1 ? 's' : ''}` : `${m} min${m !== 1 ? 's' : ''}`;
+};
+
 export const socketHandler = (io) => {
     io.on("connection", (socket) => {
         console.log("New client connected", socket.id);
@@ -439,6 +447,63 @@ export const socketHandler = (io) => {
                 targetSockets.forEach(socketId => {
                     io.to(socketId).emit("webrtc-ice-candidate", { candidate, callId });
                 });
+            }
+        });
+
+        // Save a call record to DB and broadcast to both users
+        socket.on("call-save-record", async (data) => {
+            try {
+                const { callId, callerId, receiverId, projectId, status, duration } = data;
+                // Validate authenticated user is one of the participants
+                const socketUserId = connectedUsers.get(socket.id);
+                if (!socketUserId) return;
+                const callerIdStr = callerId?.toString();
+                const receiverIdStr = receiverId?.toString();
+                if (socketUserId !== callerIdStr && socketUserId !== receiverIdStr) return;
+
+                // Idempotency: check if a CALL_RECORD for this callId already exists
+                const existing = await Message.findOne({ 'callMeta.callId': callId, messageType: 'CALL_RECORD' });
+                if (existing) {
+                    // Still broadcast the existing record so late-joining socket gets it
+                    const populated = await existing.populate('sender', 'name email');
+                    const emitTo = [callerIdStr, receiverIdStr];
+                    emitTo.forEach(uid => {
+                        const sockets = userSockets.get(uid);
+                        if (sockets) sockets.forEach(sid => io.to(sid).emit('voice-call:record', populated));
+                    });
+                    return;
+                }
+
+                // Determine content label
+                const statusLabels = {
+                    completed: `Voice call · ${formatDuration(duration)}`,
+                    declined: 'Voice call · Declined',
+                    missed: 'Missed call',
+                    no_answer: 'Voice call · No answer',
+                    failed: 'Voice call · Failed',
+                    cancelled: 'Voice call · Cancelled',
+                };
+                const content = statusLabels[status] || 'Voice call';
+
+                const callRecord = await Message.create({
+                    sender: callerId,
+                    receiver: receiverId,
+                    projectId: projectId || null,
+                    content,
+                    messageType: 'CALL_RECORD',
+                    callMeta: { callId, status, duration: duration || 0, callerId, receiverId }
+                });
+
+                const populated = await callRecord.populate('sender', 'name email');
+
+                // Broadcast to both participants
+                const emitTo = [callerIdStr, receiverIdStr];
+                emitTo.forEach(uid => {
+                    const sockets = userSockets.get(uid);
+                    if (sockets) sockets.forEach(sid => io.to(sid).emit('voice-call:record', populated));
+                });
+            } catch (err) {
+                console.error('[call-save-record] Error:', err);
             }
         });
 

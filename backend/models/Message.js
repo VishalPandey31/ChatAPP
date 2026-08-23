@@ -24,8 +24,19 @@ const messageSchema = new mongoose.Schema({
     },
     messageType: {
         type: String,
-        enum: ['TEXT', 'IMAGE', 'VOICE'],
+        enum: ['TEXT', 'IMAGE', 'VOICE', 'CALL_RECORD'],
         default: 'TEXT'
+    },
+    // Populated only when messageType === 'CALL_RECORD'
+    callMeta: {
+        callId: { type: String },
+        status: {
+            type: String,
+            enum: ['completed', 'declined', 'missed', 'no_answer', 'failed', 'cancelled'],
+        },
+        duration: { type: Number, default: 0 }, // seconds
+        callerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     },
     clientMessageId: {
         type: String,
@@ -58,3 +69,4 @@ const messageSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 export default mongoose.model('Message', messageSchema);
+
