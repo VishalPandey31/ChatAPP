@@ -2,8 +2,30 @@ import { create } from 'zustand';
 import { io } from 'socket.io-client';
 import Cookies from 'js-cookie';
 import { useProjectStore } from './projectStore';
+import { generateKeyPair, exportPublicKey, storeKeyPair, loadKeyPair } from '../utils/cryptoUtils';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
+const syncPublicKey = async (userId) => {
+    try {
+        let keyPair = await loadKeyPair(userId);
+        if (!keyPair) {
+            console.log("Generating new E2EE Key Pair...");
+            keyPair = await generateKeyPair();
+            await storeKeyPair(userId, keyPair);
+        }
+        const publicKeyBase64 = await exportPublicKey(keyPair.publicKey);
+        await fetch(`${BACKEND_URL}/api/auth/update-public-key`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ publicKey: publicKeyBase64 })
+        });
+        console.log("E2EE Public Key synced automatically.");
+    } catch (e) {
+        console.error("Error syncing public key:", e);
+    }
+};
 
 export const useAuthStore = create((set, get) => ({
     user: null,
@@ -24,6 +46,7 @@ export const useAuthStore = create((set, get) => ({
             if (!res.ok) throw new Error(data.message);
 
             set({ user: data });
+            await syncPublicKey(data._id);
             get().connectSocket();
             return true;
         } catch (err) {
@@ -43,6 +66,7 @@ export const useAuthStore = create((set, get) => ({
             if (!res.ok) throw new Error(data.message);
 
             set({ user: data });
+            await syncPublicKey(data._id);
             get().connectSocket();
             return true;
         } catch (err) {
@@ -86,6 +110,7 @@ export const useAuthStore = create((set, get) => ({
 
         const socket = io(BACKEND_URL, {
             query: { userId: user._id },
+            withCredentials: true,
             autoConnect: false // Explicitly disable autoConnect to attach listeners first
         });
 

@@ -1,5 +1,5 @@
 import express from 'express';
-import { registerAdmin, loginAdmin, loginUser, logout, getMe } from '../controllers/authController.js';
+import { registerAdmin, loginAdmin, loginUser, logout, getMe, updatePublicKey } from '../controllers/authController.js';
 import { authenticateUser } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -9,5 +9,6 @@ router.post('/admin/login', loginAdmin);
 router.post('/user/login', loginUser);
 router.post('/logout', logout);
 router.get('/me', authenticateUser, getMe);
+router.put('/update-public-key', authenticateUser, updatePublicKey);
 
 export default router;

@@ -4,6 +4,8 @@ import Chat from '../models/Chat.js';
 import Project from '../models/Project.js';
 import webpush from 'web-push';
 import dotenv from 'dotenv';
+import cookie from 'cookie';
+import jwt from 'jsonwebtoken';
 dotenv.config();
 
 webpush.setVapidDetails(
@@ -24,11 +26,27 @@ const formatDuration = (secs) => {
 };
 
 export const socketHandler = (io) => {
+    // Top-Level Security: Authenticate the Socket Connection itself using HttpOnly cookie JWT
+    io.use((socket, next) => {
+        try {
+            const cookies = cookie.parse(socket.request.headers.cookie || '');
+            const token = cookies.token;
+            if (!token) return next(new Error('Authentication Error: Missing Token'));
+
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            socket.userId = decoded.userId;
+            next();
+        } catch (err) {
+            next(new Error('Authentication Error: Invalid Token'));
+        }
+    });
+
     io.on("connection", (socket) => {
-        console.log("New client connected", socket.id);
+        console.log("New Authenticated Client Connected:", socket.id, "User ID:", socket.userId);
 
         // When a user logs in and establishes connection
-        socket.on("join", async (userId) => {
+        socket.on("join", async () => {
+            const userId = socket.userId; // Secure: ignoring payload, using JWT verified ID
             connectedUsers.set(socket.id, userId);
 
             if (!userSockets.has(userId)) {
@@ -200,7 +218,10 @@ export const socketHandler = (io) => {
 
         socket.on("send_project_message", async (data) => {
             try {
-                const { senderId, projectId, content, messageType, replyTo, clientMessageId } = data;
+                // Secure Override: Force senderId to exactly the authenticated user connected to this socket
+                data.senderId = socket.userId;
+
+                const { senderId, projectId, content, iv, encryptionVersion, messageType, replyTo, clientMessageId } = data;
                 const sender = await User.findById(senderId);
 
                 if (!sender || !projectId) return;
@@ -214,6 +235,8 @@ export const socketHandler = (io) => {
                     sender: senderId,
                     projectId: projectId,
                     content,
+                    iv,
+                    encryptionVersion,
                     messageType: messageType || 'TEXT'
                 };
                 if (replyTo) {

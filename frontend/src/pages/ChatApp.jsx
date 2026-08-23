@@ -73,12 +73,22 @@ const formatLastSeen = (dateInput) => {
 
 const ChatApp = () => {
   const { user, logout, socket, onlineUsers, lastSeenMap } = useAuthStore();
-  const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus } = useChatStore();
+  const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, editProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus } = useChatStore();
   const initVoiceListeners = useVoiceCallStore(s => s.initListeners);
   const removeVoiceListeners = useVoiceCallStore(s => s.removeListeners);
   const { projects, fetchProjects } = useProjectStore();
   const navigate = useNavigate();
   const { projectId } = useParams();
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showImageLightbox, setShowImageLightbox] = useState(null);
+  const [pendingImage, setPendingImage] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [typingUsers, setTypingUsers] = useState(new Map());
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -367,7 +377,7 @@ const ChatApp = () => {
     
     if (currentMessage.trim()) {
         if (editingMessage && !pendingImage) {
-            socket.emit("edit_project_message", { messageId: editingMessage._id, senderId: user._id, newContent: currentMessage, projectId });
+            editProjectMessage(projectId, editingMessage._id, currentMessage);
             setEditingMessage(null);
         } else {
             // Delay text slightly if sending with image to preserve visual order

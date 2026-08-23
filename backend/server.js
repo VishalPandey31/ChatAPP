@@ -15,8 +15,23 @@ import { socketHandler } from './socket/index.js';
 
 dotenv.config();
 
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+
+// Rate limiter for auth endpoints (brute-force protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // limit each IP to 50 requests per windowMs
+  message: { message: "Too many authentication attempts from this IP, please try again after 15 minutes." }
+});
+
 const app = express();
 const server = http.createServer(app);
+
+// Use Helmet for basic HTTP Security Headers
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 
 app.use(cors({
   origin: [process.env.FRONTEND_URL, "http://localhost:5173", "https://menifestation.surge.sh"],
@@ -27,7 +42,7 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ limit: '20mb', extended: true }));
 app.use(cookieParser());
 
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/projects', projectRoutes);

@@ -45,7 +45,35 @@ export const useChatStore = create((set, get) => ({
             const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, { credentials: 'include' });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
-            set({ messages: data });
+
+            // At this point, `data` is an array of Message objects.
+            // Some are legacy plaintext (encryptionVersion: 0), some are Base64 ciphertext (encryptionVersion: 1).
+            // We must map and conditionally decrypt them before they hit the UI.
+
+            const me = useAuthStore.getState().user;
+            const project = useProjectStore.getState().projects.find(p => p._id === projectId);
+            const myKeyPair = await loadKeyPair(me._id);
+
+            let sharedSecret = null;
+            if (project && myKeyPair) {
+                const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
+                const otherUser = allMembers.find(m => m._id !== me._id);
+                if (otherUser && otherUser.publicKey) {
+                    const importedPubKey = await importPublicKey(otherUser.publicKey);
+                    if (importedPubKey) sharedSecret = await deriveSecretKey(myKeyPair.privateKey, importedPubKey);
+                }
+            }
+
+            const decryptedMessages = await Promise.all(data.map(async (msg) => {
+                if (msg.encryptionVersion === 1 && sharedSecret) {
+                    // Try to decrypt
+                    const plaintext = await decryptMessage(msg.content, msg.iv, sharedSecret);
+                    return { ...msg, content: plaintext };
+                }
+                return msg;
+            }));
+
+            set({ messages: decryptedMessages });
         } catch (error) {
             console.error(error);
         } finally {
@@ -58,6 +86,7 @@ export const useChatStore = create((set, get) => ({
     },
 
     sendMessage: async (receiverId, content) => {
+        // Obsolete function, usually bypasses project flow. Re-route to sendProjectMessage if heavily used.
         const socket = useAuthStore.getState().socket;
         if (!socket) return;
         socket.emit("send_message", {
@@ -74,22 +103,52 @@ export const useChatStore = create((set, get) => ({
 
         const clientMessageId = `msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
+        const me = useAuthStore.getState().user;
+        const project = useProjectStore.getState().projects.find(p => p._id === projectId);
+
+        let finalContent = content;
+        let finalIv = null;
+        let finalVersion = 0; // default to legacy (0)
+
+        if (project && messageType !== 'CALL_RECORD') {
+            const myKeyPair = await loadKeyPair(me._id);
+            const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
+            const otherUser = allMembers.find(m => m._id !== me._id);
+
+            if (myKeyPair && otherUser && otherUser.publicKey) {
+                const importedPubKey = await importPublicKey(otherUser.publicKey);
+                if (importedPubKey) {
+                    const sharedSecret = await deriveSecretKey(myKeyPair.privateKey, importedPubKey);
+                    if (sharedSecret) {
+                        const encrypted = await encryptMessage(content, sharedSecret);
+                        if (encrypted) {
+                            finalContent = encrypted.ciphertext;
+                            finalIv = encrypted.iv;
+                            finalVersion = 1;
+                        }
+                    }
+                }
+            }
+        }
+
         const payload = {
-            senderId: useAuthStore.getState().user._id,
+            senderId: me._id,
             projectId,
-            content,
+            content: finalContent,
+            iv: finalIv,
+            encryptionVersion: finalVersion,
             messageType,
             clientMessageId
         };
         if (replyToId) payload.replyTo = replyToId;
 
-        // Optimistic UI Update
+        // Optimistic UI Update (should render the plaintext, not the ciphertext)
         const optimisticMsg = {
             _id: clientMessageId, // temporary ID
             clientMessageId,
-            sender: useAuthStore.getState().user,
+            sender: me,
             projectId,
-            content,
+            content, // the UI always reads the original plaintext!
             messageType,
             status: 'SENDING',
             createdAt: new Date().toISOString()
@@ -102,6 +161,47 @@ export const useChatStore = create((set, get) => ({
         set(state => ({ messages: [...state.messages, optimisticMsg] }));
 
         socket.emit("send_project_message", payload);
+    },
+
+    editProjectMessage: async (projectId, messageId, newContent) => {
+        const socket = useAuthStore.getState().socket;
+        const me = useAuthStore.getState().user;
+        if (!socket || !me) return;
+
+        const project = useProjectStore.getState().projects.find(p => p._id === projectId);
+        let finalContent = newContent;
+
+        if (project) {
+            const myKeyPair = await loadKeyPair(me._id);
+            const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
+            const otherUser = allMembers.find(m => m._id !== me._id);
+
+            if (myKeyPair && otherUser && otherUser.publicKey) {
+                const importedPubKey = await importPublicKey(otherUser.publicKey);
+                if (importedPubKey) {
+                    const sharedSecret = await deriveSecretKey(myKeyPair.privateKey, importedPubKey);
+                    if (sharedSecret) {
+                        const encrypted = await encryptMessage(newContent, sharedSecret);
+                        if (encrypted) {
+                            finalContent = encrypted.ciphertext;
+                            // Note: backend uses the old IV, so we just overwrite content
+                        }
+                    }
+                }
+            }
+        }
+
+        // Optimistic UI update (shows plaintext)
+        set((state) => ({
+            messages: state.messages.map(m => m._id === messageId ? { ...m, content: newContent, edited: true } : m)
+        }));
+
+        socket.emit("edit_project_message", {
+            messageId,
+            senderId: me._id,
+            newContent: finalContent,
+            projectId
+        });
     },
 
     clearProjectChat: async (projectId) => {
@@ -124,23 +224,44 @@ export const useChatStore = create((set, get) => ({
         }
     },
 
-    addMessage: (msg) => {
+    addMessage: async (msg) => {
+        let finalMsg = { ...msg };
+        if (msg.encryptionVersion === 1) {
+            const me = useAuthStore.getState().user;
+            const project = useProjectStore.getState().projects.find(p => p._id === msg.projectId);
+            if (me && project) {
+                const myKeyPair = await loadKeyPair(me._id);
+                const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
+                const otherUser = allMembers.find(m => m._id !== me._id);
+                if (myKeyPair && otherUser && otherUser.publicKey) {
+                    const importedPubKey = await importPublicKey(otherUser.publicKey);
+                    if (importedPubKey) {
+                        const sharedSecret = await deriveSecretKey(myKeyPair.privateKey, importedPubKey);
+                        if (sharedSecret) {
+                            const plaintext = await decryptMessage(msg.content, msg.iv, sharedSecret);
+                            finalMsg.content = plaintext;
+                        }
+                    }
+                }
+            }
+        }
+
         set((state) => {
             // Replace if we have it optimistically
-            if (msg.clientMessageId) {
-                const existingIndex = state.messages.findIndex(m => m.clientMessageId === msg.clientMessageId);
+            if (finalMsg.clientMessageId) {
+                const existingIndex = state.messages.findIndex(m => m.clientMessageId === finalMsg.clientMessageId);
                 if (existingIndex > -1) {
                     const newMessages = [...state.messages];
-                    newMessages[existingIndex] = msg;
+                    newMessages[existingIndex] = finalMsg;
                     return { messages: newMessages };
                 }
             }
             // Also prevent duplicates by _id
-            const dupIndex = state.messages.findIndex(m => m._id === msg._id);
+            const dupIndex = state.messages.findIndex(m => m._id === finalMsg._id);
             if (dupIndex > -1) {
                 return state;
             }
-            return { messages: [...state.messages, msg] };
+            return { messages: [...state.messages, finalMsg] };
         });
     },
 

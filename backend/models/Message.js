@@ -22,6 +22,13 @@ const messageSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    iv: {
+        type: String, // Initialization Vector (Base64) for E2EE
+    },
+    encryptionVersion: {
+        type: Number, // Example: 1 for AES-GCM
+        default: 0 // 0 means unencrypted legacy plaintext
+    },
     messageType: {
         type: String,
         enum: ['TEXT', 'IMAGE', 'VOICE', 'CALL_RECORD'],

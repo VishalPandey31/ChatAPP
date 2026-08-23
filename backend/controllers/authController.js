@@ -155,3 +155,17 @@ export const getMe = async (req, res) => {
         res.status(500).json({ message: 'Server Error' });
     }
 };
+
+// @desc Update user ECDH public key
+export const updatePublicKey = async (req, res) => {
+    try {
+        const { publicKey } = req.body;
+        if (!publicKey) return res.status(400).json({ message: 'Public key missing' });
+
+        await User.findByIdAndUpdate(req.user._id, { publicKey });
+        res.status(200).json({ message: 'Public key updated' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
