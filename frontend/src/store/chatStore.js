@@ -137,19 +137,34 @@ export const useChatStore = create((set, get) => ({
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
 
-            // Decrypt E2EE messages using the stored activeRecipientId context
+            // INSTANT RENDER: show all messages immediately with encrypted ones showing placeholder
+            const instantMessages = data.map(msg => {
+                if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
+                    return { ...msg, content: '🔒 Decrypting...', _needsDecrypt: true };
+                }
+                return msg;
+            });
+            set({ messages: instantMessages, isMessagesLoading: false });
+
+            // PROGRESSIVE DECRYPTION: decrypt in background, update one by one
             const { activeRecipientId } = get();
-            let decrypted;
-            try {
-                decrypted = await Promise.all(data.map(msg => decryptSingleMessage(msg, activeRecipientId)));
-            } catch (e) {
-                console.error('[E2EE] Batch decryption error, falling back to raw messages', e);
-                decrypted = data; // fail-safe: show raw (may be ciphertext for new msgs)
+            for (let i = 0; i < data.length; i++) {
+                const msg = data[i];
+                if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
+                    try {
+                        const decrypted = await decryptSingleMessage(msg, activeRecipientId);
+                        set(state => ({
+                            messages: state.messages.map(m =>
+                                m._id === decrypted._id ? { ...decrypted, _needsDecrypt: false } : m
+                            )
+                        }));
+                    } catch (e) {
+                        // already handled inside decryptSingleMessage
+                    }
+                }
             }
-            set({ messages: decrypted });
         } catch (error) {
             console.error(error);
-        } finally {
             set({ isMessagesLoading: false });
         }
     },

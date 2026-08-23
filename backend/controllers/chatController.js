@@ -38,12 +38,23 @@ export const getMessages = async (req, res) => {
 export const getProjectMessages = async (req, res) => {
     try {
         const { projectId } = req.params;
-        // Populate sender to know who sent the message, and who replied
-        const messages = await Message.find({ projectId })
+        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+        const before = req.query.before; // cursor: createdAt ISO string
+
+        const query = { projectId };
+        if (before) {
+            query.createdAt = { $lt: new Date(before) };
+        }
+
+        const messages = await Message.find(query)
             .populate('sender', 'name email profilePicture lastSeen')
             .populate({ path: 'replyTo', select: 'content sender' })
-            .sort({ createdAt: 1 })
+            .sort({ createdAt: -1 })
+            .limit(limit)
             .lean();
+
+        // Reverse so oldest first for frontend rendering
+        messages.reverse();
 
         res.status(200).json(messages);
     } catch (err) {
