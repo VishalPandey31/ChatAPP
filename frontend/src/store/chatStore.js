@@ -89,7 +89,8 @@ async function decryptSingleMessage(msg, activeRecipientId) {
             } catch (err) {
                 console.warn('[E2EE] Outer message decryption failed', msg._id, err.message);
                 decryptedMsg.content = '⚠️ Message decryption failed';
-                sharedSecretCache.delete(recipientId);
+                // WARNING: We must NOT delete the shared key cache here, otherwise legacy unrecoverable 
+                // messages will trigger a severe API request flood for subsequent messages.
             }
         }
 
