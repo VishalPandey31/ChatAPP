@@ -10,7 +10,6 @@ import {
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 // In-memory cache of derived shared secrets per userId
-// Map<userId → CryptoKey>
 const sharedSecretCache = new Map();
 
 /**
@@ -18,6 +17,7 @@ const sharedSecretCache = new Map();
  * Returns the CryptoKey or null if E2EE is unavailable.
  */
 async function getSharedSecret(recipientId) {
+    if (!recipientId) return null;
     if (sharedSecretCache.has(recipientId)) {
         return sharedSecretCache.get(recipientId);
     }
@@ -36,37 +36,58 @@ async function getSharedSecret(recipientId) {
         sharedSecretCache.set(recipientId, sharedKey);
         return sharedKey;
     } catch (err) {
-        console.error('[E2EE] Failed to derive shared secret for', recipientId, err);
+        console.warn('[E2EE] Could not derive shared secret for', recipientId);
         return null;
     }
 }
 
 /**
- * Decrypt a single message object. If it can't be decrypted, show a safe fallback.
+ * Decrypt a single message object if it has encryptionVersion === 1.
+ * ALWAYS returns a valid message — never throws or breaks the UI.
+ * Uses the store's activeRecipientId as context (project messages have no receiver field).
  */
-async function decryptSingleMessage(msg) {
-    // Only attempt decryption on TEXT messages with encryptionVersion ≥ 1
+async function decryptSingleMessage(msg, activeRecipientId) {
+    // Only decrypt TEXT messages with encryptionVersion === 1
     if (!msg || msg.encryptionVersion !== 1 || msg.messageType !== 'TEXT' || msg.deleted) {
-        return msg;
+        return msg; // legacy/plaintext or non-text — return as-is
     }
 
     try {
-        // Determine the OTHER person's ID to derive shared secret
-        const myId = useAuthStore.getState().user?._id;
-        const senderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
-        const recipientId = senderId === myId ? msg.receiver : senderId;
-        if (!recipientId) return msg;
+        const myId = useAuthStore.getState().user?._id?.toString();
+        const senderId = typeof msg.sender === 'object' ? msg.sender?._id?.toString() : msg.sender?.toString();
 
-        const sharedKey = await getSharedSecret(recipientId.toString());
-        if (!sharedKey) return { ...msg, content: '🔒 Unable to decrypt — key unavailable' };
+        // For project messages, derive recipient from the stored context
+        // For direct messages, use msg.receiver
+        let recipientId = activeRecipientId;
+        if (!recipientId) {
+            // Fallback: if I'm the sender, use receiver; if I'm the receiver, use sender
+            if (senderId === myId) {
+                recipientId = msg.receiver?.toString?.() || msg.receiver;
+            } else {
+                recipientId = senderId;
+            }
+        }
+        if (!recipientId) return msg; // can't decrypt without a recipient
+
+        const sharedKey = await getSharedSecret(recipientId);
+        if (!sharedKey) {
+            // Key unavailable (e.g. other user hasn't logged in with new build yet)
+            // Show safe fallback instead of ciphertext garbage
+            return { ...msg, content: '🔒 E2EE message (key not yet available)' };
+        }
 
         const plaintext = await decryptMessage(msg.content, msg.iv, sharedKey);
         return { ...msg, content: plaintext };
     } catch (err) {
+        // Any error (wrong key, corrupted cipher, etc.) — show safe fallback
+        console.warn('[E2EE] Decryption failed for message', msg._id, err.message);
         return { ...msg, content: '⚠️ Message decryption failed' };
     }
 }
 
+// ─────────────────────────────────────────────────────────
+// Zustand Store
+// ─────────────────────────────────────────────────────────
 export const useChatStore = create((set, get) => ({
     chats: [],
     messages: [],
@@ -74,6 +95,7 @@ export const useChatStore = create((set, get) => ({
     isChatsLoading: false,
     isMessagesLoading: false,
     currentProjectId: null,
+    activeRecipientId: null, // E2EE: who we are chatting with (the OTHER user's ID)
 
     getChats: async () => {
         set({ isChatsLoading: true });
@@ -110,8 +132,15 @@ export const useChatStore = create((set, get) => ({
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
 
-            // Decrypt E2EE messages on the client before setting into state
-            const decrypted = await Promise.all(data.map(decryptSingleMessage));
+            // Decrypt E2EE messages using the stored activeRecipientId context
+            const { activeRecipientId } = get();
+            let decrypted;
+            try {
+                decrypted = await Promise.all(data.map(msg => decryptSingleMessage(msg, activeRecipientId)));
+            } catch (e) {
+                console.error('[E2EE] Batch decryption error, falling back to raw messages', e);
+                decrypted = data; // fail-safe: show raw (may be ciphertext for new msgs)
+            }
             set({ messages: decrypted });
         } catch (error) {
             console.error(error);
@@ -122,6 +151,15 @@ export const useChatStore = create((set, get) => ({
 
     setActiveChat: (chat) => {
         set({ activeChat: chat });
+    },
+
+    /**
+     * Set which user we are encrypting for.
+     * Call this when opening a project chat.
+     */
+    setActiveRecipientId: (userId) => {
+        if (userId) sharedSecretCache.delete(userId); // clear stale cache
+        set({ activeRecipientId: userId || null });
     },
 
     sendMessage: async (receiverId, content) => {
@@ -146,10 +184,8 @@ export const useChatStore = create((set, get) => ({
         let iv = null;
         let encryptionVersion = 0;
 
-        // Only encrypt TEXT messages (not images, call records, etc.)
+        // Only encrypt TEXT messages (never images, call records, etc.)
         if (messageType === 'TEXT' && content && typeof content === 'string') {
-            // Determine recipient: need the "other" user's ID for key exchange
-            // In a project chat we use the stored receiver context
             const { activeRecipientId } = get();
             if (activeRecipientId) {
                 try {
@@ -160,8 +196,13 @@ export const useChatStore = create((set, get) => ({
                         iv = encrypted.iv;
                         encryptionVersion = 1;
                     }
+                    // If no sharedKey, falls through as plaintext (key not yet uploaded)
                 } catch (err) {
-                    console.error('[E2EE] Encryption failed, falling back to plaintext:', err);
+                    console.warn('[E2EE] Encryption failed, sending as plaintext:', err);
+                    // Graceful degradation: send as plaintext
+                    finalContent = content;
+                    iv = null;
+                    encryptionVersion = 0;
                 }
             }
         }
@@ -177,13 +218,13 @@ export const useChatStore = create((set, get) => ({
         };
         if (replyToId) payload.replyTo = replyToId;
 
-        // Optimistic UI Update — always show plaintext to the sender
+        // Optimistic UI Update — always show PLAINTEXT to the sender immediately
         const optimisticMsg = {
             _id: clientMessageId,
             clientMessageId,
             sender: currentUser,
             projectId,
-            content, // show original plaintext to sender
+            content,            // always show original plaintext in optimistic update
             iv,
             encryptionVersion,
             messageType,
@@ -199,33 +240,35 @@ export const useChatStore = create((set, get) => ({
         socket.emit("send_project_message", payload);
     },
 
-    // Set the active recipient so we know who to encrypt for
-    setActiveRecipientId: (userId) => {
-        sharedSecretCache.delete(userId); // clear cache when switching recipients
-        set({ activeRecipientId: userId });
-    },
-
-    clearProjectChat: async (projectId) => {
-        try {
-            const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}/clear`, {
-                method: 'DELETE',
-                credentials: 'include'
-            });
-            if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.message);
-            }
-            const socket = useAuthStore.getState().socket;
-            if (socket) socket.emit("clear_project_chat", projectId);
-            set({ messages: [] });
-        } catch (error) {
-            console.error("Error clearing chat:", error);
-        }
-    },
-
+    /**
+     * Called when a real-time socket message arrives.
+     * Decrypts E2EE messages before inserting into state.
+     * NOTE: This is async — callers should use .catch() if needed.
+     */
     addMessage: async (msg) => {
-        // Decrypt incoming message before inserting into state
-        const decryptedMsg = await decryptSingleMessage(msg);
+        const { activeRecipientId } = get();
+
+        // Check if this message is from myself (optimistic update already handled it)
+        const myId = useAuthStore.getState().user?._id?.toString();
+        const senderId = typeof msg.sender === 'object' ? msg.sender?._id?.toString() : msg.sender?.toString();
+        const isOwnMessage = senderId === myId;
+
+        let decryptedMsg;
+        if (isOwnMessage) {
+            // Our own message already shown as plaintext via optimistic update
+            // Just replace the optimistic entry with the server-confirmed one (still showing plaintext)
+            decryptedMsg = { ...msg, content: msg.content };
+            // If encryptionVersion is 1, we need to get the plaintext from the optimistic state
+            if (msg.encryptionVersion === 1 && msg.clientMessageId) {
+                const optimistic = get().messages.find(m => m.clientMessageId === msg.clientMessageId);
+                if (optimistic) {
+                    decryptedMsg = { ...msg, content: optimistic.content }; // keep plaintext
+                }
+            }
+        } else {
+            // Incoming from other user — decrypt it
+            decryptedMsg = await decryptSingleMessage(msg, activeRecipientId);
+        }
 
         set((state) => {
             if (decryptedMsg.clientMessageId) {
@@ -256,7 +299,9 @@ export const useChatStore = create((set, get) => ({
 
     deleteMessageLocally: (messageId) => {
         set((state) => ({
-            messages: state.messages.map(m => m._id === messageId ? { ...m, deleted: true, content: 'This message was deleted' } : m)
+            messages: state.messages.map(m =>
+                m._id === messageId ? { ...m, deleted: true, content: 'This message was deleted' } : m
+            )
         }));
     },
 
@@ -278,11 +323,27 @@ export const useChatStore = create((set, get) => ({
         }));
     },
 
+    clearProjectChat: async (projectId) => {
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}/clear`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.message);
+            }
+            const socket = useAuthStore.getState().socket;
+            if (socket) socket.emit("clear_project_chat", projectId);
+            set({ messages: [] });
+        } catch (error) {
+            console.error("Error clearing chat:", error);
+        }
+    },
+
     clearMessagesLocally: () => {
         set({ messages: [] });
     },
 
-    updateChatsList: (msg) => {
-        // Bring chat to top, etc
-    }
+    updateChatsList: () => { /* bring chat to top */ }
 }));
