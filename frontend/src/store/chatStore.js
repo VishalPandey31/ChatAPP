@@ -133,7 +133,16 @@ export const useChatStore = create((set, get) => ({
     getProjectMessages: async (projectId) => {
         set({ isMessagesLoading: true, currentProjectId: projectId });
         try {
-            const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, { credentials: 'include' });
+            // 10-second timeout to prevent infinite "Loading messages..." on slow backend
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, {
+                credentials: 'include',
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
 
@@ -164,8 +173,42 @@ export const useChatStore = create((set, get) => ({
                 }
             }
         } catch (error) {
+            if (error.name === 'AbortError') {
+                console.warn('[Chat] Fetch timed out, retrying once...');
+                // Auto-retry once after timeout (Render cold start recovery)
+                try {
+                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, { credentials: 'include' });
+                    const data = await res.json();
+                    if (res.ok) {
+                        const instantMessages = data.map(msg => {
+                            if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
+                                return { ...msg, content: '🔒 Decrypting...', _needsDecrypt: true };
+                            }
+                            return msg;
+                        });
+                        set({ messages: instantMessages, isMessagesLoading: false });
+
+                        const { activeRecipientId } = get();
+                        for (const msg of data) {
+                            if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
+                                try {
+                                    const decrypted = await decryptSingleMessage(msg, activeRecipientId);
+                                    set(state => ({
+                                        messages: state.messages.map(m =>
+                                            m._id === decrypted._id ? { ...decrypted, _needsDecrypt: false } : m
+                                        )
+                                    }));
+                                } catch (e) { }
+                            }
+                        }
+                        return;
+                    }
+                } catch (retryErr) {
+                    console.error('[Chat] Retry also failed:', retryErr);
+                }
+            }
             console.error(error);
-            set({ isMessagesLoading: false });
+            set({ messages: [], isMessagesLoading: false });
         }
     },
 
