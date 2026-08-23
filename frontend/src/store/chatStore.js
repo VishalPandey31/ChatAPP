@@ -51,9 +51,14 @@ async function getSharedSecret(recipientId) {
  * Uses the store's activeRecipientId as context (project messages have no receiver field).
  */
 async function decryptSingleMessage(msg, activeRecipientId) {
-    // Only decrypt TEXT messages with encryptionVersion === 1
-    if (!msg || msg.encryptionVersion !== 1 || msg.messageType !== 'TEXT' || msg.deleted) {
-        return msg; // legacy/plaintext or non-text — return as-is
+    if (!msg) return msg;
+
+    let decryptedMsg = { ...msg };
+    const outerNeedsDecryption = (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted);
+    const innerNeedsDecryption = (msg.replyTo && msg.replyTo.encryptionVersion === 1 && msg.replyTo.messageType === 'TEXT' && !msg.replyTo.deleted);
+
+    if (!outerNeedsDecryption && !innerNeedsDecryption) {
+        return decryptedMsg; // nothing to decrypt
     }
 
     let recipientId = activeRecipientId;
@@ -61,30 +66,35 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         const myId = useAuthStore.getState().user?._id?.toString();
         const senderId = typeof msg.sender === 'object' ? msg.sender?._id?.toString() : msg.sender?.toString();
 
-        // For project messages, derive recipient from the stored context
-        // For direct messages, use msg.receiver
         if (!recipientId) {
-            // Fallback: if I'm the sender, use receiver; if I'm the receiver, use sender
             if (senderId === myId) {
                 recipientId = msg.receiver?.toString?.() || msg.receiver;
             } else {
                 recipientId = senderId;
             }
         }
-        if (!recipientId) return msg; // can't decrypt without a recipient
+        if (!recipientId) return decryptedMsg;
 
         const sharedKey = await getSharedSecret(recipientId);
         if (!sharedKey) {
-            // Key unavailable (e.g. other user hasn't logged in with new build yet)
-            // Show safe fallback instead of ciphertext garbage
-            return { ...msg, content: '🔒 E2EE message (key not yet available)' };
+            if (outerNeedsDecryption) decryptedMsg.content = '🔒 E2EE message (key not yet available)';
+            if (innerNeedsDecryption) decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: '🔒 E2EE message (key not yet available)' };
+            return decryptedMsg;
         }
 
-        const plaintext = await decryptMessage(msg.content, msg.iv, sharedKey);
-        const decryptedMsg = { ...msg, content: plaintext };
+        // Decrypt outer message if needed
+        if (outerNeedsDecryption) {
+            try {
+                decryptedMsg.content = await decryptMessage(msg.content, msg.iv, sharedKey);
+            } catch (err) {
+                console.warn('[E2EE] Outer message decryption failed', msg._id, err.message);
+                decryptedMsg.content = '⚠️ Message decryption failed';
+                sharedSecretCache.delete(recipientId);
+            }
+        }
 
-        // Recursively decrypt nested reply message content
-        if (decryptedMsg.replyTo && decryptedMsg.replyTo.encryptionVersion === 1 && decryptedMsg.replyTo.messageType === 'TEXT' && !decryptedMsg.replyTo.deleted) {
+        // Decrypt inner reply if needed
+        if (innerNeedsDecryption) {
             try {
                 const replyPlaintext = await decryptMessage(decryptedMsg.replyTo.content, decryptedMsg.replyTo.iv, sharedKey);
                 decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: replyPlaintext };
@@ -96,10 +106,10 @@ async function decryptSingleMessage(msg, activeRecipientId) {
 
         return decryptedMsg;
     } catch (err) {
-        // Any error (wrong key, corrupted cipher, etc.) — show safe fallback
-        console.warn('[E2EE] Decryption failed for message', msg._id, err.message);
-        if (recipientId) sharedSecretCache.delete(recipientId); // invalidate stale cache
-        return { ...msg, content: '⚠️ Message decryption failed' };
+        // Absolute fallback for unexpected crypto initialization errors
+        if (outerNeedsDecryption) decryptedMsg.content = '⚠️ Message decryption failed';
+        if (innerNeedsDecryption) decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: '⚠️ Message decryption failed' };
+        return decryptedMsg;
     }
 }
 
@@ -163,17 +173,17 @@ export const useChatStore = create((set, get) => ({
             const { activeRecipientId } = get();
             for (let i = 0; i < data.length; i++) {
                 const msg = data[i];
-                if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
-                    try {
-                        const decrypted = await decryptSingleMessage(msg, activeRecipientId);
+                try {
+                    const decrypted = await decryptSingleMessage(msg, activeRecipientId);
+                    if (decrypted !== msg) { // Only dispatch state update if decryption actually changed it
                         set(state => ({
                             messages: state.messages.map(m =>
                                 m._id === decrypted._id ? { ...decrypted, _needsDecrypt: false } : m
                             )
                         }));
-                    } catch (e) {
-                        // already handled inside decryptSingleMessage
                     }
+                } catch (e) {
+                    // Handled inside decryptSingleMessage
                 }
             }
         } catch (error) {
