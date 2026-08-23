@@ -50,12 +50,18 @@ export const useProjectStore = create((set) => ({
 
     updateCollaboratorLastSeen: (userId, lastSeen) => {
         set((state) => ({
-            projects: state.projects.map(project => ({
-                ...project,
-                collaborators: project.collaborators.map(c =>
-                    c._id === userId ? { ...c, lastSeen } : c
-                )
-            }))
+            projects: state.projects.map(project => {
+                const updatedProject = { ...project };
+                if (updatedProject.admin && updatedProject.admin._id === userId) {
+                    updatedProject.admin = { ...updatedProject.admin, lastSeen };
+                }
+                if (updatedProject.collaborators) {
+                    updatedProject.collaborators = updatedProject.collaborators.map(c =>
+                        c._id === userId ? { ...c, lastSeen } : c
+                    );
+                }
+                return updatedProject;
+            })
         }));
     }
 }));

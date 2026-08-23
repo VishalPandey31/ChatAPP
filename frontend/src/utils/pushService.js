@@ -12,15 +12,43 @@ export async function subscribeToPushNotifications() {
 
         // Wait till registration is active
         let subscription = await registration.pushManager.getSubscription();
+        const publicVapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
-        if (!subscription) {
-            const publicVapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-            if (!publicVapidKey) {
-                console.error("Vapid key missing in env");
-                return false;
+        if (!publicVapidKey) {
+            console.error("Vapid key missing in env");
+            return false;
+        }
+
+        const convertedVapidKey = urlBase64ToUint8Array(publicVapidKey);
+
+        // Verification mechanism to purge stale subscriptions holding an old VAPID server key
+        if (subscription) {
+            const currentKey = subscription.options.applicationServerKey;
+            let keyMatches = true;
+            if (currentKey) {
+                const currentKeyArray = new Uint8Array(currentKey);
+                if (currentKeyArray.length !== convertedVapidKey.length) {
+                    keyMatches = false;
+                } else {
+                    for (let i = 0; i < currentKeyArray.length; i++) {
+                        if (currentKeyArray[i] !== convertedVapidKey[i]) {
+                            keyMatches = false;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                keyMatches = false;
             }
 
-            const convertedVapidKey = urlBase64ToUint8Array(publicVapidKey);
+            if (!keyMatches) {
+                console.log("Found stale subscription with mismatched VAPID key. Unsubscribing...");
+                await subscription.unsubscribe();
+                subscription = null;
+            }
+        }
+
+        if (!subscription) {
             subscription = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: convertedVapidKey

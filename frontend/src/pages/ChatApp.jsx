@@ -26,6 +26,45 @@ const playNotificationSound = () => {
     }
 };
 
+const renderMessageContent = (content) => {
+    if (!content) return null;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = content.split(urlRegex);
+    return parts.map((part, i) => {
+        if (part.match(urlRegex)) {
+            return (
+                <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: '#60A5FA', textDecoration: 'underline' }} onClick={(e) => e.stopPropagation()}>
+                    {part}
+                </a>
+            );
+        }
+        return <React.Fragment key={i}>{part}</React.Fragment>;
+    });
+};
+
+const formatLastSeen = (dateInput) => {
+    if (!dateInput) return 'Offline';
+    const date = new Date(dateInput);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMin = Math.max(0, Math.floor(diffMs / 60000));
+    const diffHrs = Math.floor(diffMin / 60);
+    
+    // Check if dates match by year, month, and date
+    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffDays = Math.round((today - checkDate) / (1000 * 60 * 60 * 24)); 
+    
+    if (diffMin < 1) return `Last seen just now`;
+    if (diffMin < 60) return `Last seen ${diffMin} min ago`;
+    if (diffDays === 0) return `Last seen ${diffHrs} ${diffHrs === 1 ? 'hour' : 'hours'} ago`;
+    if (diffDays === 1) return `Last seen yesterday`;
+    
+    const dateOptions = { day: 'numeric', month: 'short' };
+    const dateStr = date.toLocaleDateString('en-GB', dateOptions);
+    return `Last seen on ${dateStr}`;
+};
+
 const ChatApp = () => {
   const { user, logout, socket, onlineUsers } = useAuthStore();
   const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus } = useChatStore();
@@ -43,6 +82,7 @@ const ChatApp = () => {
   const [typingUsers, setTypingUsers] = useState(new Map());
   const [reactionMsgId, setReactionMsgId] = useState(null);
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
+  const [timeTicker, setTimeTicker] = useState(Date.now());
   const activeMenuRef = useRef(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -125,6 +165,11 @@ const ChatApp = () => {
     }
   }, [socket, projectId, user]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setTimeTicker(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
   const handleEnablePush = async () => {
       const p = await Notification.requestPermission();
       setPermission(p);
@@ -167,33 +212,14 @@ const ChatApp = () => {
         if (incomingSenderId !== user._id) {
             socket.emit("project_message_delivered", { messageId: msg._id, projectId, receiverId: user._id });
             
+            const isFocused = document.visibilityState === 'visible' && document.hasFocus();
+            
             // Only emit SEEN if the user is actively looking at the window
-            if (document.visibilityState === 'visible' && document.hasFocus()) {
+            if (isFocused) {
                 socket.emit("project_messages_seen", { projectId, userId: user._id });
             }
+            
             playNotificationSound();
-            if (Notification.permission === 'granted') {
-                let senderDisplay = 'Teammate';
-                if (typeof msg.sender === 'object' && msg.sender?.name) senderDisplay = msg.sender.name;
-                
-                if (navigator.serviceWorker) {
-                    navigator.serviceWorker.ready.then(reg => {
-                        reg.showNotification(`New message from ${senderDisplay}`, {
-                            body: msg.messageType === 'IMAGE' ? '📷 Image' : msg.content,
-                            icon: '/favicon.svg',
-                            badge: '/favicon.svg',
-                            requireInteraction: false
-                        });
-                    });
-                } else {
-                    const notification = new Notification(`New message from ${senderDisplay}`, {
-                        body: msg.messageType === 'IMAGE' ? '📷 Image' : msg.content,
-                        icon: '/favicon.svg',
-                        requireInteraction: false
-                    });
-                    notification.onclick = () => { window.focus(); notification.close(); };
-                }
-            }
         }
       };
 
@@ -358,12 +384,24 @@ const ChatApp = () => {
               </span>
               <span style={{ fontSize: '12px', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
                 {(() => {
-                    const typingStr = Array.from(typingUsers.values()).join(', ');
-                    if (typingStr) return <span style={{ color: '#25D366', fontStyle: 'italic' }}>{typingStr} typing...</span>;
                     if (!currentProject) return 'Offline';
                     const otherMembers = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => m && (m._id || m) !== user._id);
                     const onlineCount = otherMembers.filter(m => onlineUsers.includes(m._id || m)).length;
-                    return onlineCount > 0 ? (otherMembers.length === 1 ? 'Online' : `${onlineCount} member(s) online`) : 'Offline';
+                    
+                    if (onlineCount > 0) {
+                        return (
+                            <span style={{ color: '#25D366', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#25D366' }} />
+                                Online
+                            </span>
+                        );
+                    }
+                    
+                    if (otherMembers.length === 1) {
+                        return <span style={{ color: '#94A3B8' }}>{formatLastSeen(otherMembers[0].lastSeen)}</span>;
+                    }
+                    
+                    return <span style={{ color: '#94A3B8' }}>Offline</span>;
                 })()}
               </span>
             </div>
@@ -449,7 +487,7 @@ const ChatApp = () => {
         )}
 
             {/* Messages */}
-            <div className="chat-messages" onScroll={() => activeMenuMsgId && setActiveMenuMsgId(null)} style={{ flex: 1, minHeight: 0, padding: '24px 32px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <div className="chat-messages" onScroll={() => activeMenuMsgId && setActiveMenuMsgId(null)} style={{ flex: 1, minHeight: 0, padding: `24px 32px ${(showEmojiPicker || reactionMsgId) ? 320 : 24}px 32px`, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
               {React.useMemo(() => {
                 if (isMessagesLoading) {
                   return <div style={{ textAlign: 'center', color: '#64748B', fontFamily: '"Inter", sans-serif', fontSize: '14px', marginTop: '20px' }}>Loading messages...</div>;
@@ -684,7 +722,7 @@ const ChatApp = () => {
                             ) : msg.messageType === 'IMAGE' ? (
                                 <img src={msg.content} alt="Shared UI" draggable={false} style={{ maxWidth: '280px', maxHeight: '280px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => setShowImageLightbox(msg.content)} />
                             ) : (
-                                msg.content
+                                renderMessageContent(msg.content)
                             )}
 
                             {msg.edited && !msg.deleted && <span style={{ fontSize: '11px', marginLeft: '6px', opacity: 0.7 }}>(edited)</span>}
@@ -700,12 +738,6 @@ const ChatApp = () => {
                                 </div>
                             )}
 
-                            {/* Reaction Picker Overlay */}
-                            {reactionMsgId === msg._id && (
-                                <div style={{ position: 'absolute', [isMine ? 'right' : 'left']: '0', top: '100%', zIndex: 10, marginTop: '4px', filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.5))' }}>
-                                    <EmojiPicker theme="dark" onEmojiClick={(e) => { socket.emit("project_message_reaction", { messageId: msg._id, userId: user._id, reaction: e.emoji, projectId }); setReactionMsgId(null); }} width={260} height={350} searchDisabled />
-                                </div>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -773,10 +805,13 @@ const ChatApp = () => {
               })() : null}
 
               <div style={{ position: 'relative' }}>
-                  {showEmojiPicker && (
-                    <div style={{ position: 'absolute', bottom: '60px', left: '0', zIndex: 50 }}>
-                        <EmojiPicker theme="dark" onEmojiClick={(e) => {
-                            if (textareaRef.current) {
+                  {(showEmojiPicker || reactionMsgId) && (
+                    <div style={{ position: 'absolute', bottom: '70px', left: '0', right: '0', zIndex: 50, maxHeight: '300px', overflowY: 'auto' }}>
+                        <EmojiPicker theme="dark" width="100%" height={300} onEmojiClick={(e) => {
+                            if (reactionMsgId) {
+                                socket.emit("project_message_reaction", { messageId: reactionMsgId, userId: user._id, reaction: e.emoji, projectId });
+                                setReactionMsgId(null);
+                            } else if (textareaRef.current) {
                                 const start = textareaRef.current.selectionStart;
                                 const end = textareaRef.current.selectionEnd;
                                 const text = textareaRef.current.value;
@@ -789,9 +824,6 @@ const ChatApp = () => {
                     </div>
                   )}
                   <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
-                    <span className="icon-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)} title="Emoji" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
-                      <Smile size={20} />
-                    </span>
                     <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageSelect} style={{ display: 'none' }} />
                     <span className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Add Media" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
                       <ImageIcon size={20} />

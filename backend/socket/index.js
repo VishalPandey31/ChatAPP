@@ -148,8 +148,13 @@ export const socketHandler = (io) => {
                             await webpush.sendNotification(sub, payload);
                             validSubs.push(sub);
                         } catch (error) {
-                            if (error.statusCode === 410 || error.statusCode === 404) changed = true;
-                            else validSubs.push(sub);
+                            console.error("WebPush send_message error:", error.statusCode || error);
+                            // 410 Gone, 404 Not Found, 401 Unauthorized, 400 Bad Request all signify invalid/stale sub
+                            if (error.statusCode === 410 || error.statusCode === 404 || error.statusCode === 401 || error.statusCode === 400) {
+                                changed = true;
+                            } else {
+                                validSubs.push(sub);
+                            }
                         }
                     }));
                     if (changed) {
@@ -233,8 +238,12 @@ export const socketHandler = (io) => {
                                     await webpush.sendNotification(sub, payload);
                                     validSubs.push(sub);
                                 } catch (err) {
-                                    if (err.statusCode === 410 || err.statusCode === 404) changed = true;
-                                    else validSubs.push(sub);
+                                    console.error("WebPush send_project_message error:", err.statusCode || err);
+                                    if (err.statusCode === 410 || err.statusCode === 404 || err.statusCode === 401 || err.statusCode === 400) {
+                                        changed = true;
+                                    } else {
+                                        validSubs.push(sub);
+                                    }
                                 }
                             }));
 
