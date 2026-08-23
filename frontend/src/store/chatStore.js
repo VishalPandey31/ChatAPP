@@ -309,6 +309,9 @@ export const useChatStore = create((set, get) => ({
                 const optimistic = get().messages.find(m => m.clientMessageId === msg.clientMessageId);
                 if (optimistic) {
                     decryptedMsg.content = optimistic.content; // keep optimistic plaintext
+                    if (optimistic.replyTo) {
+                        decryptedMsg.replyTo = optimistic.replyTo; // preserve perfectly decrypted optimistic reply
+                    }
                 }
             }
         }
