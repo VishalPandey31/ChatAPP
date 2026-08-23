@@ -289,21 +289,18 @@ export const useChatStore = create((set, get) => ({
         const senderId = typeof msg.sender === 'object' ? msg.sender?._id?.toString() : msg.sender?.toString();
         const isOwnMessage = senderId === myId;
 
-        let decryptedMsg;
+        // Decrypt the incoming message and any nested replies using the unified pipeline
+        let decryptedMsg = await decryptSingleMessage(msg, activeRecipientId);
+
         if (isOwnMessage) {
-            // Our own message already shown as plaintext via optimistic update
-            // Just replace the optimistic entry with the server-confirmed one (still showing plaintext)
-            decryptedMsg = { ...msg, content: msg.content };
-            // If encryptionVersion is 1, we need to get the plaintext from the optimistic state
+            // If encryptionVersion is 1, our own message was already shown as plaintext via optimistic update. 
+            // We preserve that plaintext to prevent flicker or fallback errors, but we keep the decrypted replyTo.
             if (msg.encryptionVersion === 1 && msg.clientMessageId) {
                 const optimistic = get().messages.find(m => m.clientMessageId === msg.clientMessageId);
                 if (optimistic) {
-                    decryptedMsg = { ...msg, content: optimistic.content }; // keep plaintext
+                    decryptedMsg.content = optimistic.content; // keep optimistic plaintext
                 }
             }
-        } else {
-            // Incoming from other user — decrypt it
-            decryptedMsg = await decryptSingleMessage(msg, activeRecipientId);
         }
 
         set((state) => {
@@ -327,9 +324,24 @@ export const useChatStore = create((set, get) => ({
         }));
     },
 
-    updateMessage: (updatedMsg) => {
+    updateMessage: async (updatedMsg) => {
+        const { activeRecipientId } = get();
+        const decryptedMsg = await decryptSingleMessage(updatedMsg, activeRecipientId);
+
+        // As a safeguard for our own edited messages matching the optimistic fix
+        const myId = useAuthStore.getState().user?._id?.toString();
+        const senderId = typeof updatedMsg.sender === 'object' ? updatedMsg.sender?._id?.toString() : updatedMsg.sender?.toString();
+
+        // ONLY if it's not a text message, we keep content. Editing encrypted messages is not supported anyway!
+        if (senderId === myId && updatedMsg.encryptionVersion === 1) {
+            const existing = get().messages.find(m => m._id === updatedMsg._id);
+            if (existing && decryptedMsg.content === '⚠️ Message decryption failed') {
+                decryptedMsg.content = existing.content;
+            }
+        }
+
         set((state) => ({
-            messages: state.messages.map(m => m._id === updatedMsg._id ? updatedMsg : m)
+            messages: state.messages.map(m => m._id === decryptedMsg._id ? decryptedMsg : m)
         }));
     },
 
