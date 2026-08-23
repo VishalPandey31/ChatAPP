@@ -12,6 +12,10 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 // In-memory cache of derived shared secrets per userId
 const sharedSecretCache = new Map();
 
+export const clearUserEncryptionCache = (userId) => {
+    if (userId) sharedSecretCache.delete(userId);
+};
+
 /**
  * Fetch the recipient's public key from backend and derive a shared AES-GCM secret.
  * Returns the CryptoKey or null if E2EE is unavailable.
@@ -81,6 +85,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
     } catch (err) {
         // Any error (wrong key, corrupted cipher, etc.) — show safe fallback
         console.warn('[E2EE] Decryption failed for message', msg._id, err.message);
+        if (recipientId) sharedSecretCache.delete(recipientId); // invalidate stale cache
         return { ...msg, content: '⚠️ Message decryption failed' };
     }
 }

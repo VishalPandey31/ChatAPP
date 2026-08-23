@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { io } from 'socket.io-client';
 import Cookies from 'js-cookie';
 import { useProjectStore } from './projectStore';
+import { useChatStore, clearUserEncryptionCache } from './chatStore';
 import {
     generateKeyPair,
     exportPublicKey,
@@ -24,25 +25,21 @@ export const useAuthStore = create((set, get) => ({
     myPublicKeyJwk: null, // JWK string (for sharing with backend)
 
     _initE2EEKeys: async () => {
-        // Attempt to load existing private key from localStorage
+        // Attempt to load existing keypair from localStorage
         try {
-            const storedJwk = localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
-            if (storedJwk) {
-                const privateKey = await importPrivateKey(storedJwk);
-                const keyPair = await generateKeyPair();
-                // We don't reuse the stored private key's public key easily without re-deriving,
-                // so we generate fresh keys every session (ephemeral, simpler to reason about)
-                const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
-                const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
-                localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, privKeyJwk);
-                set({ myPrivateKey: keyPair.privateKey, myPublicKeyJwk: pubKeyJwk });
-                return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk };
+            const storedPrivJwk = localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
+            const storedPubJwk = localStorage.getItem('e2ee_public_key_jwk');
+            if (storedPrivJwk && storedPubJwk) {
+                const privateKey = await importPrivateKey(storedPrivJwk);
+                set({ myPrivateKey: privateKey, myPublicKeyJwk: storedPubJwk });
+                return { privateKey, publicKeyJwk: storedPubJwk };
             } else {
                 // Generate new keypair
                 const keyPair = await generateKeyPair();
                 const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
                 const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
                 localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, privKeyJwk);
+                localStorage.setItem('e2ee_public_key_jwk', pubKeyJwk);
                 set({ myPrivateKey: keyPair.privateKey, myPublicKeyJwk: pubKeyJwk });
                 return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk };
             }
@@ -165,11 +162,13 @@ export const useAuthStore = create((set, get) => ({
 
         socket.on('initial_online_users', (userIds) => {
             set({ onlineUsers: userIds });
+            userIds.forEach(id => clearUserEncryptionCache(id));
         });
 
         socket.on('user_status', ({ userId, status, lastSeen }) => {
             if (status === 'online') {
                 set((state) => ({ onlineUsers: [...new Set([...state.onlineUsers, userId])] }));
+                clearUserEncryptionCache(userId);
             } else {
                 set((state) => {
                     const newStatus = { onlineUsers: state.onlineUsers.filter(id => id !== userId) };

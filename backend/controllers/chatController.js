@@ -6,7 +6,8 @@ export const getUserChats = async (req, res) => {
         const chats = await Chat.find({ participants: req.user._id })
             .populate('participants', 'name email profilePicture lastSeen role')
             .populate('lastMessage')
-            .sort({ updatedAt: -1 });
+            .sort({ updatedAt: -1 })
+            .lean();
 
         res.status(200).json(chats);
     } catch (err) {
@@ -25,7 +26,7 @@ export const getMessages = async (req, res) => {
                 { sender: currentUserId, receiver: userId },
                 { sender: userId, receiver: currentUserId }
             ]
-        }).sort({ createdAt: 1 });
+        }).sort({ createdAt: 1 }).lean();
 
         res.status(200).json(messages);
     } catch (err) {
@@ -41,7 +42,9 @@ export const getProjectMessages = async (req, res) => {
         const messages = await Message.find({ projectId })
             .populate('sender', 'name email profilePicture lastSeen')
             .populate({ path: 'replyTo', select: 'content sender' })
-            .sort({ createdAt: 1 });
+            .sort({ createdAt: 1 })
+            .lean();
+
         res.status(200).json(messages);
     } catch (err) {
         console.error(err);
