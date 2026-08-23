@@ -241,24 +241,21 @@ const ChatApp = () => {
     }
     
     if (projectId) {
+      // CRITICAL: Set E2EE recipient BEFORE loading messages to avoid N individual key-fetch HTTP calls
+      if (currentProject) {
+        const others = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
+          if (!m) return false;
+          const mId = (m._id || m).toString();
+          return mId !== user._id.toString();
+        });
+        if (others.length > 0) {
+          const recipientId = (others[0]._id || others[0]).toString();
+          setActiveRecipientId(recipientId);
+        }
+      }
       getProjectMessages(projectId);
     }
-  }, [user, navigate, projectId, getProjectMessages]);
-
-  useEffect(() => {
-    if (projectId && currentProject && user) {
-      // Set E2EE encryption target: the OTHER person in this conversation
-      const others = [currentProject.admin, ...(currentProject.collaborators || [])].filter(m => {
-        if (!m) return false;
-        const mId = (m._id || m).toString();
-        return mId !== user._id.toString();
-      });
-      if (others.length > 0) {
-        const recipientId = (others[0]._id || others[0]).toString();
-        setActiveRecipientId(recipientId);
-      }
-    }
-  }, [projectId, currentProject, user, setActiveRecipientId]);
+  }, [user, navigate, projectId, currentProject, getProjectMessages, setActiveRecipientId]);
 
   useEffect(() => {
     if (socket && projectId) {

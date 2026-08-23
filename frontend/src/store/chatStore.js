@@ -133,7 +133,7 @@ export const useChatStore = create((set, get) => ({
     getProjectMessages: async (projectId) => {
         set({ isMessagesLoading: true, currentProjectId: projectId });
         try {
-            // 10-second timeout to prevent infinite "Loading messages..." on slow backend
+            // 10 second timeout so UI never hangs forever
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -146,7 +146,7 @@ export const useChatStore = create((set, get) => ({
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
 
-            // INSTANT RENDER: show all messages immediately with encrypted ones showing placeholder
+            // INSTANT RENDER: show all messages immediately
             const instantMessages = data.map(msg => {
                 if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
                     return { ...msg, content: '🔒 Decrypting...', _needsDecrypt: true };
@@ -155,8 +155,13 @@ export const useChatStore = create((set, get) => ({
             });
             set({ messages: instantMessages, isMessagesLoading: false });
 
-            // PROGRESSIVE DECRYPTION: decrypt in background, update one by one
+            // PRE-WARM: fetch the shared key ONCE before decrypting all messages
             const { activeRecipientId } = get();
+            if (activeRecipientId) {
+                await getSharedSecret(activeRecipientId);
+            }
+
+            // PROGRESSIVE DECRYPTION: decrypt messages in background
             for (let i = 0; i < data.length; i++) {
                 const msg = data[i];
                 if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
@@ -174,40 +179,10 @@ export const useChatStore = create((set, get) => ({
             }
         } catch (error) {
             if (error.name === 'AbortError') {
-                console.warn('[Chat] Fetch timed out, retrying once...');
-                // Auto-retry once after timeout (Render cold start recovery)
-                try {
-                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, { credentials: 'include' });
-                    const data = await res.json();
-                    if (res.ok) {
-                        const instantMessages = data.map(msg => {
-                            if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
-                                return { ...msg, content: '🔒 Decrypting...', _needsDecrypt: true };
-                            }
-                            return msg;
-                        });
-                        set({ messages: instantMessages, isMessagesLoading: false });
-
-                        const { activeRecipientId } = get();
-                        for (const msg of data) {
-                            if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
-                                try {
-                                    const decrypted = await decryptSingleMessage(msg, activeRecipientId);
-                                    set(state => ({
-                                        messages: state.messages.map(m =>
-                                            m._id === decrypted._id ? { ...decrypted, _needsDecrypt: false } : m
-                                        )
-                                    }));
-                                } catch (e) { }
-                            }
-                        }
-                        return;
-                    }
-                } catch (retryErr) {
-                    console.error('[Chat] Retry also failed:', retryErr);
-                }
+                console.warn('[Chat] Message fetch timed out, retrying...');
+            } else {
+                console.error(error);
             }
-            console.error(error);
             set({ messages: [], isMessagesLoading: false });
         }
     },
