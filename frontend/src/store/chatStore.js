@@ -56,13 +56,13 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         return msg; // legacy/plaintext or non-text — return as-is
     }
 
+    let recipientId = activeRecipientId;
     try {
         const myId = useAuthStore.getState().user?._id?.toString();
         const senderId = typeof msg.sender === 'object' ? msg.sender?._id?.toString() : msg.sender?.toString();
 
         // For project messages, derive recipient from the stored context
         // For direct messages, use msg.receiver
-        let recipientId = activeRecipientId;
         if (!recipientId) {
             // Fallback: if I'm the sender, use receiver; if I'm the receiver, use sender
             if (senderId === myId) {
