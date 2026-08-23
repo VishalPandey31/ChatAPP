@@ -39,7 +39,7 @@ export const getProjectMessages = async (req, res) => {
         const { projectId } = req.params;
         // Populate sender to know who sent the message, and who replied
         const messages = await Message.find({ projectId })
-            .populate('sender', 'name email profilePicture')
+            .populate('sender', 'name email profilePicture lastSeen')
             .populate({ path: 'replyTo', select: 'content sender' })
             .sort({ createdAt: 1 });
         res.status(200).json(messages);

@@ -72,7 +72,7 @@ const formatLastSeen = (dateInput) => {
 };
 
 const ChatApp = () => {
-  const { user, logout, socket, onlineUsers } = useAuthStore();
+  const { user, logout, socket, onlineUsers, lastSeenMap } = useAuthStore();
   const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus } = useChatStore();
   const initVoiceListeners = useVoiceCallStore(s => s.initListeners);
   const removeVoiceListeners = useVoiceCallStore(s => s.removeListeners);
@@ -443,8 +443,11 @@ const ChatApp = () => {
                         );
                     }
                     
-                    if (callTarget.lastSeen) {
-                        return <span>{formatLastSeen(callTarget.lastSeen)}</span>;
+                    // Fallback to real authStore tracked map, then object property
+                    const reliableLastSeen = lastSeenMap && lastSeenMap[targetId] ? lastSeenMap[targetId] : callTarget.lastSeen;
+                    
+                    if (reliableLastSeen) {
+                        return <span>{formatLastSeen(reliableLastSeen)}</span>;
                     }
 
                     return <span>Offline</span>;

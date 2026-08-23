@@ -10,6 +10,7 @@ export const useAuthStore = create((set, get) => ({
     socket: null,
     isCheckingAuth: true,
     onlineUsers: [],
+    lastSeenMap: {},
     login: async (credentials, isAdmin = false) => {
         try {
             const endpoint = isAdmin ? '/api/auth/admin/login' : '/api/auth/user/login';
@@ -100,7 +101,13 @@ export const useAuthStore = create((set, get) => ({
             if (status === 'online') {
                 set((state) => ({ onlineUsers: [...new Set([...state.onlineUsers, userId])] }));
             } else {
-                set((state) => ({ onlineUsers: state.onlineUsers.filter(id => id !== userId) }));
+                set((state) => {
+                    const newStatus = { onlineUsers: state.onlineUsers.filter(id => id !== userId) };
+                    if (lastSeen) {
+                        newStatus.lastSeenMap = { ...state.lastSeenMap, [userId]: lastSeen };
+                    }
+                    return newStatus;
+                });
                 if (lastSeen) {
                     useProjectStore.getState().updateCollaboratorLastSeen(userId, lastSeen);
                 }
