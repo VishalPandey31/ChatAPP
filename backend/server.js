@@ -24,15 +24,23 @@ const server = http.createServer(app);
 // Security: HTTP Headers (Helmet)
 // --------------------------------------------------
 app.use(helmet({
-  contentSecurityPolicy: false, // CSP would block Surge+Socket.io inline scripts — disabled for now
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false, // Prevents CORS from being blocked on APIs
+  crossOriginOpenerPolicy: false // Allows popup/auth flows
 }));
 
 // --------------------------------------------------
 // CORS — Strict origin list
 // --------------------------------------------------
 app.use(cors({
-  origin: [process.env.FRONTEND_URL, "http://localhost:5173", "https://menifestation.surge.sh"],
+  origin: [
+    process.env.FRONTEND_URL,
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "https://menifestation.surge.sh"
+  ],
   credentials: true,
 }));
 
