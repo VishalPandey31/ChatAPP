@@ -54,8 +54,8 @@ async function decryptSingleMessage(msg, activeRecipientId) {
     if (!msg) return msg;
 
     let decryptedMsg = { ...msg };
-    const outerNeedsDecryption = (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted);
-    const innerNeedsDecryption = (msg.replyTo && msg.replyTo.encryptionVersion === 1 && msg.replyTo.messageType === 'TEXT' && !msg.replyTo.deleted);
+    const outerNeedsDecryption = ((msg.encryptionVersion === 1 || !!msg.iv) && msg.messageType === 'TEXT' && !msg.deleted);
+    const innerNeedsDecryption = (msg.replyTo && (msg.replyTo.encryptionVersion === 1 || !!msg.replyTo.iv) && msg.replyTo.messageType === 'TEXT' && !msg.replyTo.deleted);
 
     if (!outerNeedsDecryption && !innerNeedsDecryption) {
         return decryptedMsg; // nothing to decrypt

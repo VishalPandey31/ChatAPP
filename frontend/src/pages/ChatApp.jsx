@@ -775,14 +775,18 @@ const ChatApp = () => {
 
                             {/* Reply Context Nested Block */}
                             {msg.replyTo && (() => {
-                              const replySenderId = typeof msg.replyTo.sender === 'object' ? msg.replyTo.sender?._id : msg.replyTo.sender;
+                              const replySenderId = (typeof msg.replyTo.sender === 'object' && msg.replyTo.sender?._id) ? msg.replyTo.sender._id.toString() : msg.replyTo.sender?.toString();
                               let replyDisplay = 'Teammate';
-                              if (replySenderId === user._id) {
+                              if (replySenderId === user._id.toString()) {
                                 replyDisplay = 'You';
                               } else if (typeof msg.replyTo.sender === 'object' && msg.replyTo.sender?.email) {
                                 replyDisplay = msg.replyTo.sender.name || msg.replyTo.sender.email.split('@')[0];
                               } else if (currentProject) {
-                                const matchedMember = [currentProject.admin, ...(currentProject.collaborators || [])].find(m => m && (m._id === replySenderId || m === replySenderId));
+                                const matchedMember = [currentProject.admin, ...(currentProject.collaborators || [])].find(m => {
+                                    if (!m) return false;
+                                    const stringId = m._id ? m._id.toString() : m.toString();
+                                    return stringId === replySenderId;
+                                });
                                 if (matchedMember && typeof matchedMember === 'object' && matchedMember.email) {
                                   replyDisplay = matchedMember.name || matchedMember.email.split('@')[0];
                                 }
