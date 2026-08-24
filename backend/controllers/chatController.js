@@ -48,7 +48,7 @@ export const getProjectMessages = async (req, res) => {
 
         const messages = await Message.find(query)
             .populate('sender', 'name email profilePicture lastSeen')
-            .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted' })
+            .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } })
             .sort({ createdAt: -1 })
             .limit(limit)
             .lean();

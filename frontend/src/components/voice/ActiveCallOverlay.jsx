@@ -15,6 +15,7 @@ const ActiveCallOverlay = () => {
     } = useVoiceCallStore();
     
     const [duration, setDuration] = useState(0);
+    const [audioOutput, setAudioOutput] = useState('speaker'); // 'speaker' or 'earpiece'
     const remoteAudioRef = useRef(null);
     const ringbackToneRef = useRef(null);
 
@@ -69,6 +70,47 @@ const ActiveCallOverlay = () => {
         };
     }, [callState, activeCall]);
 
+    const toggleAudioOutput = async () => {
+        const newOutput = audioOutput === 'speaker' ? 'earpiece' : 'speaker';
+        
+        if (remoteAudioRef.current && typeof remoteAudioRef.current.setSinkId === 'function') {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+                let targetDevice = null;
+                
+                if (newOutput === 'earpiece') {
+                    // Try to find a device containing earpiece, phone, or handset
+                    targetDevice = audioOutputs.find(d => {
+                        const lbl = d.label.toLowerCase();
+                        return lbl.includes('earpiece') || lbl.includes('phone') || lbl.includes('handset');
+                    });
+                } else {
+                    // Try to find a device containing speaker
+                    targetDevice = audioOutputs.find(d => d.label.toLowerCase().includes('speaker'));
+                    if (!targetDevice) {
+                        targetDevice = audioOutputs.find(d => d.deviceId === 'default') || audioOutputs[0];
+                    }
+                }
+
+                if (targetDevice) {
+                    await remoteAudioRef.current.setSinkId(targetDevice.deviceId);
+                } else if (newOutput === 'speaker') {
+                    await remoteAudioRef.current.setSinkId(''); // fallback generic speaker output
+                } else {
+                    console.warn('Earpiece device not distinctly found in enumerateDevices.');
+                }
+                setAudioOutput(newOutput);
+            } catch (err) {
+                console.warn('setSinkId API failed or hardware rejected routing:', err);
+                setAudioOutput(newOutput); // Keep UI state toggled to allow OS-level hardware routing matching
+            }
+        } else {
+            console.warn('setSinkId not supported on this browser (e.g. iOS Safari). Audio routing gracefully handled by OS constraints.');
+            setAudioOutput(newOutput);
+        }
+    };
+
     if (!isVisible) return null;
 
     const targetName = activeCall?.isIncoming ? activeCall?.callerName : activeCall?.receiverName;
@@ -89,6 +131,14 @@ const ActiveCallOverlay = () => {
                     title={isMuted ? "Unmute" : "Mute"}
                 >
                     {isMuted ? '🔇' : '🎤'}
+                </button>
+                <button 
+                    className="btn-voice-action" 
+                    onClick={toggleAudioOutput}
+                    title={audioOutput === 'speaker' ? "Switch to Earpiece" : "Switch to Speaker"}
+                    style={{ backgroundColor: audioOutput === 'earpiece' ? 'var(--bg-secondary, #1E293B)' : '' }}
+                >
+                    {audioOutput === 'speaker' ? '🔊' : '📱'}
                 </button>
                 <button 
                     className="btn-voice-action btn-end" 

@@ -236,7 +236,7 @@ export const socketHandler = (io) => {
 
                 // Populate sender and replyTo for frontend preview in real-time
                 msg = await msg.populate('sender', 'name email profilePicture');
-                msg = await msg.populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted' });
+                msg = await msg.populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } });
 
                 // Emit to designated project room
                 io.to(projectId).emit("receive_project_message", msg);
@@ -307,7 +307,7 @@ export const socketHandler = (io) => {
                     await msg.save();
                     const populatedMsg = await Message.findById(messageId)
                         .populate('sender', 'name email profilePicture')
-                        .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted' });
+                        .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } });
                     io.to(projectId).emit("message_edited", populatedMsg);
                 }
             } catch (err) { console.error("Edit error:", err); }
@@ -351,7 +351,7 @@ export const socketHandler = (io) => {
                     await msg.save();
                     const populatedMsg = await Message.findById(messageId)
                         .populate('sender', 'name email profilePicture')
-                        .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted' });
+                        .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } });
                     io.to(projectId).emit("message_reaction_updated", populatedMsg);
                 }
             } catch (err) { console.error("Reaction error:", err); }

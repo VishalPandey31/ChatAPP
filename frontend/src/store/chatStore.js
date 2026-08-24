@@ -86,6 +86,10 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         if (outerNeedsDecryption) {
             try {
                 decryptedMsg.content = await decryptMessage(msg.content, msg.iv, sharedKey);
+                // CRITICAL: Clear encryption flags after successful decryption to prevent
+                // double-decryption on re-processing (optimistic replacement, updateMessage, etc.)
+                decryptedMsg.encryptionVersion = 0;
+                decryptedMsg.iv = null;
             } catch (err) {
                 console.warn('[E2EE] Outer message decryption failed', msg._id, err.message);
                 decryptedMsg.content = '⚠️ Message decryption failed';
@@ -98,7 +102,8 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         if (innerNeedsDecryption) {
             try {
                 const replyPlaintext = await decryptMessage(decryptedMsg.replyTo.content, decryptedMsg.replyTo.iv, sharedKey);
-                decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: replyPlaintext };
+                // CRITICAL: Clear encryption flags on replyTo after successful decryption
+                decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: replyPlaintext, encryptionVersion: 0, iv: null };
             } catch (replyErr) {
                 console.warn('[E2EE] Nested reply decryption failed', replyErr.message);
                 decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: '⚠️ Message decryption failed' };
@@ -120,6 +125,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
 export const useChatStore = create((set, get) => ({
     chats: [],
     messages: [],
+    messagesCache: {}, // Local cache to prevent UI freeze: projectId -> messages array
     activeChat: null,
     isChatsLoading: false,
     isMessagesLoading: false,
@@ -155,38 +161,36 @@ export const useChatStore = create((set, get) => ({
     },
 
     getProjectMessages: async (projectId) => {
-        set({ isMessagesLoading: true, currentProjectId: projectId });
+        const cached = get().messagesCache[projectId];
+        set({ isMessagesLoading: !cached, currentProjectId: projectId, messages: cached || [] });
         try {
             const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, { credentials: 'include' });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
 
-            // INSTANT RENDER: show all messages immediately with encrypted ones showing placeholder
-            const instantMessages = data.map(msg => {
-                if (msg.encryptionVersion === 1 && msg.messageType === 'TEXT' && !msg.deleted) {
-                    return { ...msg, content: '🔒 Decrypting...', _needsDecrypt: true };
-                }
-                return msg;
-            });
-            set({ messages: instantMessages, isMessagesLoading: false });
-
-            // PROGRESSIVE DECRYPTION: decrypt in background, update one by one
             const { activeRecipientId } = get();
-            for (let i = 0; i < data.length; i++) {
-                const msg = data[i];
-                try {
-                    const decrypted = await decryptSingleMessage(msg, activeRecipientId);
-                    if (decrypted !== msg) { // Only dispatch state update if decryption actually changed it
-                        set(state => ({
-                            messages: state.messages.map(m =>
-                                m._id === decrypted._id ? { ...decrypted, _needsDecrypt: false } : m
-                            )
-                        }));
-                    }
-                } catch (e) {
-                    // Handled inside decryptSingleMessage
+
+            // PARALLEL BATCH DECRYPTION: Resolves all E2EE messages including deep nested replyTos before DOM insertion
+            const decryptedMessages = await Promise.all(
+                data.map(msg => decryptSingleMessage(msg, activeRecipientId))
+            );
+
+            // Preserve pending optimistic messages correctly to append
+            const currentMsgs = get().messages;
+            const optimisticPending = currentMsgs.filter(m => m.status === 'SENDING' && m.projectId === projectId);
+
+            const newMessages = [...decryptedMessages];
+            optimisticPending.forEach(opt => {
+                if (!newMessages.find(m => m.clientMessageId === opt.clientMessageId)) {
+                    newMessages.push(opt);
                 }
-            }
+            });
+
+            set(state => ({
+                messages: newMessages,
+                messagesCache: { ...state.messagesCache, [projectId]: newMessages },
+                isMessagesLoading: false
+            }));
         } catch (error) {
             console.error(error);
             set({ isMessagesLoading: false });
@@ -283,7 +287,13 @@ export const useChatStore = create((set, get) => ({
             if (replyMsg) optimisticMsg.replyTo = replyMsg;
         }
 
-        set(state => ({ messages: [...state.messages, optimisticMsg] }));
+        set(state => {
+            const newMessages = [...state.messages, optimisticMsg];
+            return {
+                messages: newMessages,
+                messagesCache: { ...state.messagesCache, [projectId]: newMessages }
+            };
+        });
         socket.emit("send_project_message", payload);
     },
 
@@ -318,24 +328,35 @@ export const useChatStore = create((set, get) => ({
         }
 
         set((state) => {
+            let newMessages;
             if (decryptedMsg.clientMessageId) {
                 const existingIndex = state.messages.findIndex(m => m.clientMessageId === decryptedMsg.clientMessageId);
                 if (existingIndex > -1) {
-                    const newMessages = [...state.messages];
+                    newMessages = [...state.messages];
                     newMessages[existingIndex] = decryptedMsg;
-                    return { messages: newMessages };
                 }
             }
-            const dupIndex = state.messages.findIndex(m => m._id === decryptedMsg._id);
-            if (dupIndex > -1) return state;
-            return { messages: [...state.messages, decryptedMsg] };
+            if (!newMessages) {
+                const dupIndex = state.messages.findIndex(m => m._id === decryptedMsg._id);
+                if (dupIndex > -1) return state;
+                newMessages = [...state.messages, decryptedMsg];
+            }
+
+            return {
+                messages: newMessages,
+                messagesCache: state.currentProjectId ? { ...state.messagesCache, [state.currentProjectId]: newMessages } : state.messagesCache
+            };
         });
     },
 
     removeMessageFromUI: (messageId) => {
-        set((state) => ({
-            messages: state.messages.filter(m => m._id !== messageId)
-        }));
+        set((state) => {
+            const newMessages = state.messages.filter(m => m._id !== messageId);
+            return {
+                messages: newMessages,
+                messagesCache: state.currentProjectId ? { ...state.messagesCache, [state.currentProjectId]: newMessages } : state.messagesCache
+            };
+        });
     },
 
     updateMessage: async (updatedMsg) => {
@@ -354,35 +375,51 @@ export const useChatStore = create((set, get) => ({
             }
         }
 
-        set((state) => ({
-            messages: state.messages.map(m => m._id === decryptedMsg._id ? decryptedMsg : m)
-        }));
+        set((state) => {
+            const newMessages = state.messages.map(m => m._id === decryptedMsg._id ? decryptedMsg : m);
+            return {
+                messages: newMessages,
+                messagesCache: state.currentProjectId ? { ...state.messagesCache, [state.currentProjectId]: newMessages } : state.messagesCache
+            };
+        });
     },
 
     deleteMessageLocally: (messageId) => {
-        set((state) => ({
-            messages: state.messages.map(m =>
+        set((state) => {
+            const newMessages = state.messages.map(m =>
                 m._id === messageId ? { ...m, deleted: true, content: 'This message was deleted' } : m
-            )
-        }));
+            );
+            return {
+                messages: newMessages,
+                messagesCache: state.currentProjectId ? { ...state.messagesCache, [state.currentProjectId]: newMessages } : state.messagesCache
+            };
+        });
     },
 
     updateMessageStatus: (messageId, status) => {
-        set(state => ({
-            messages: state.messages.map(m => m._id === messageId ? { ...m, status } : m)
-        }));
+        set(state => {
+            const newMessages = state.messages.map(m => m._id === messageId ? { ...m, status } : m);
+            return {
+                messages: newMessages,
+                messagesCache: state.currentProjectId ? { ...state.messagesCache, [state.currentProjectId]: newMessages } : state.messagesCache
+            };
+        });
     },
 
     updateProjectMessagesStatus: (projectId, status, readerId) => {
-        set(state => ({
-            messages: state.messages.map(m => {
+        set(state => {
+            const newMessages = state.messages.map(m => {
                 const senderId = typeof m.sender === 'object' ? m.sender?._id : m.sender;
                 if (senderId !== readerId && m.status !== 'READ') {
                     return { ...m, status: 'READ' };
                 }
                 return m;
-            })
-        }));
+            });
+            return {
+                messages: newMessages,
+                messagesCache: { ...state.messagesCache, [projectId]: newMessages }
+            };
+        });
     },
 
     clearProjectChat: async (projectId) => {
@@ -397,14 +434,20 @@ export const useChatStore = create((set, get) => ({
             }
             const socket = useAuthStore.getState().socket;
             if (socket) socket.emit("clear_project_chat", projectId);
-            set({ messages: [] });
+            set(state => ({
+                messages: [],
+                messagesCache: { ...state.messagesCache, [projectId]: [] }
+            }));
         } catch (error) {
             console.error("Error clearing chat:", error);
         }
     },
 
     clearMessagesLocally: () => {
-        set({ messages: [] });
+        set(state => ({
+            messages: [],
+            messagesCache: state.currentProjectId ? { ...state.messagesCache, [state.currentProjectId]: [] } : state.messagesCache
+        }));
     },
 
     updateChatsList: () => { /* bring chat to top */ }
