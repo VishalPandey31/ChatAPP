@@ -198,7 +198,7 @@ export const socketHandler = (io) => {
             socket.join(projectId);
         });
 
-        socket.on("send_project_message", async (data) => {
+        socket.on("send_project_message", async (data, callback) => {
             try {
                 const { senderId, projectId, content, messageType, replyTo, clientMessageId, iv, encryptionVersion } = data;
 
@@ -232,7 +232,17 @@ export const socketHandler = (io) => {
                     msgData.clientMessageId = clientMessageId;
                 }
 
-                let msg = await Message.create(msgData);
+                let msg;
+                try {
+                    msg = await Message.create(msgData);
+                } catch (createErr) {
+                    if (createErr.code === 11000 && clientMessageId) {
+                        msg = await Message.findOne({ clientMessageId });
+                        if (!msg) throw createErr;
+                    } else {
+                        throw createErr;
+                    }
+                }
 
                 // Populate sender and replyTo for frontend preview in real-time
                 msg = await msg.populate('sender', 'name email profilePicture');
@@ -286,8 +296,15 @@ export const socketHandler = (io) => {
                     }
                 }
 
+                if (typeof callback === 'function') {
+                    callback({ status: 'ok', messageId: msg._id });
+                }
+
             } catch (err) {
                 console.error("Socket error on send_project_message:", err);
+                if (typeof callback === 'function') {
+                    callback({ status: 'error', error: err.message });
+                }
             }
         });
 

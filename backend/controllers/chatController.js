@@ -40,10 +40,13 @@ export const getProjectMessages = async (req, res) => {
         const { projectId } = req.params;
         const limit = Math.min(parseInt(req.query.limit) || 50, 100);
         const before = req.query.before; // cursor: createdAt ISO string
+        const after = req.query.after;
 
         const query = { projectId };
-        if (before) {
-            query.createdAt = { $lt: new Date(before) };
+        if (before || after) {
+            query.createdAt = {};
+            if (before) query.createdAt.$lt = new Date(before);
+            if (after) query.createdAt.$gt = new Date(after);
         }
 
         const messages = await Message.find(query)

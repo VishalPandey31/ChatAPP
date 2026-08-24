@@ -73,6 +73,17 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                 recipientId = senderId;
             }
         }
+        // For project messages sent by ourselves, receiver is absent.
+        // Fall back to the replyTo sender or derive from the store's cached recipientId.
+        if (!recipientId && msg.projectId) {
+            const storeRecipient = useChatStore.getState().activeRecipientId;
+            if (storeRecipient) {
+                recipientId = storeRecipient;
+            } else if (msg.replyTo) {
+                const replySenderId = typeof msg.replyTo.sender === 'object' ? msg.replyTo.sender?._id?.toString() : msg.replyTo.sender?.toString();
+                if (replySenderId && replySenderId !== myId) recipientId = replySenderId;
+            }
+        }
         if (!recipientId) return decryptedMsg;
 
         const sharedKey = await getSharedSecret(recipientId);
@@ -160,9 +171,17 @@ export const useChatStore = create((set, get) => ({
         }
     },
 
-    getProjectMessages: async (projectId) => {
+    getProjectMessages: async (projectId, force = false) => {
         const cached = get().messagesCache[projectId];
-        set({ isMessagesLoading: !cached, currentProjectId: projectId, messages: cached || [] });
+
+        if (cached && !force) {
+            set({ isMessagesLoading: false, currentProjectId: projectId, messages: cached });
+            // Seamlessly fetch any missing messages in the background
+            get().syncMissedMessages(projectId);
+            return;
+        }
+
+        set({ isMessagesLoading: true, currentProjectId: projectId, messages: [] });
         try {
             const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, { credentials: 'include' });
             const data = await res.json();
@@ -194,6 +213,55 @@ export const useChatStore = create((set, get) => ({
         } catch (error) {
             console.error(error);
             set({ isMessagesLoading: false });
+        }
+    },
+
+    syncMissedMessages: async (projectId) => {
+        const cached = get().messagesCache[projectId] || (get().currentProjectId === projectId ? get().messages : []);
+        if (!cached || cached.length === 0) return;
+
+        let latestDate = cached[0].createdAt;
+        for (let m of cached) {
+            if (new Date(m.createdAt) > new Date(latestDate)) {
+                latestDate = m.createdAt;
+            }
+        }
+
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}?after=${latestDate}`, { credentials: 'include' });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data || data.length === 0) return;
+
+            const { activeRecipientId } = get();
+            const decryptedMessages = await Promise.all(
+                data.map(msg => decryptSingleMessage(msg, activeRecipientId))
+            );
+
+            set(state => {
+                const currentCache = state.messagesCache[projectId] || (state.currentProjectId === projectId ? state.messages : []);
+                let newMessages = [...currentCache];
+
+                decryptedMessages.forEach(dec => {
+                    const existsClient = dec.clientMessageId && newMessages.find(m => m.clientMessageId === dec.clientMessageId);
+                    const existsId = newMessages.find(m => m._id === dec._id);
+
+                    if (existsClient) {
+                        newMessages[newMessages.indexOf(existsClient)] = dec;
+                    } else if (!existsId) {
+                        newMessages.push(dec);
+                    }
+                });
+
+                newMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+                return {
+                    messages: state.currentProjectId === projectId ? newMessages : state.messages,
+                    messagesCache: { ...state.messagesCache, [projectId]: newMessages }
+                };
+            });
+        } catch (err) {
+            console.error("[E2EE] Sync failed", err);
         }
     },
 
@@ -283,8 +351,20 @@ export const useChatStore = create((set, get) => ({
             createdAt: new Date().toISOString()
         };
         if (replyToId) {
-            const replyMsg = get().messages.find(m => m._id === replyToId);
-            if (replyMsg) optimisticMsg.replyTo = replyMsg;
+            const replyMsg = get().messages.find(m => (m._id?.toString?.() || m._id) === (replyToId?.toString?.() || replyToId));
+            if (replyMsg) {
+                // Store a UI-safe snapshot: guaranteed decrypted plaintext content
+                optimisticMsg.replyTo = {
+                    _id: replyMsg._id,
+                    content: replyMsg.content,
+                    sender: replyMsg.sender,
+                    messageType: replyMsg.messageType || 'TEXT',
+                    deleted: replyMsg.deleted || false,
+                    // CRITICAL: Force-clear encryption flags — this content is already decrypted in state
+                    encryptionVersion: 0,
+                    iv: null
+                };
+            }
         }
 
         set(state => {
@@ -324,6 +404,30 @@ export const useChatStore = create((set, get) => ({
                         decryptedMsg.replyTo = optimistic.replyTo; // preserve perfectly decrypted optimistic reply
                     }
                 }
+            }
+        }
+
+        // SAFETY NET: If replyTo still has encryptionVersion=1 after all decryption attempts,
+        // it means ciphertext leaked through. Try one more time with a fresh key derivation.
+        if (decryptedMsg.replyTo && (decryptedMsg.replyTo.encryptionVersion === 1 || !!decryptedMsg.replyTo.iv) && decryptedMsg.replyTo.messageType === 'TEXT' && !decryptedMsg.replyTo.deleted) {
+            try {
+                const storeRecipient = get().activeRecipientId;
+                let fallbackRecipientId = storeRecipient;
+                if (!fallbackRecipientId) {
+                    const replySenderId = typeof decryptedMsg.replyTo.sender === 'object' ? decryptedMsg.replyTo.sender?._id?.toString() : decryptedMsg.replyTo.sender?.toString();
+                    const myId2 = useAuthStore.getState().user?._id?.toString();
+                    if (replySenderId && replySenderId !== myId2) fallbackRecipientId = replySenderId;
+                    else if (senderId && senderId !== myId2) fallbackRecipientId = senderId;
+                }
+                if (fallbackRecipientId) {
+                    const sharedKey = await getSharedSecret(fallbackRecipientId);
+                    if (sharedKey) {
+                        const replyPlaintext = await decryptMessage(decryptedMsg.replyTo.content, decryptedMsg.replyTo.iv, sharedKey);
+                        decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: replyPlaintext, encryptionVersion: 0, iv: null };
+                    }
+                }
+            } catch (safetyErr) {
+                console.warn('[E2EE] Safety net replyTo decryption failed', safetyErr.message);
             }
         }
 

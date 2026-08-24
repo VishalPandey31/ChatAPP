@@ -73,7 +73,7 @@ const formatLastSeen = (dateInput) => {
 
 const ChatApp = () => {
   const { user, logout, socket, onlineUsers, lastSeenMap } = useAuthStore();
-  const { messages, isMessagesLoading, getProjectMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, setActiveRecipientId } = useChatStore();
+  const { messages, isMessagesLoading, getProjectMessages, syncMissedMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, setActiveRecipientId } = useChatStore();
   const initVoiceListeners = useVoiceCallStore(s => s.initListeners);
   const removeVoiceListeners = useVoiceCallStore(s => s.removeListeners);
   const { projects, fetchProjects } = useProjectStore();
@@ -199,17 +199,31 @@ const ChatApp = () => {
     }
     const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible' && socket && projectId && user) {
+            if (socket.disconnected) {
+                socket.connect(); // Force reconnect if OS killed it during suspension
+            }
+            // Trigger delta-sync safely in background
+            syncMissedMessages(projectId);
             socket.emit("project_messages_seen", { projectId, userId: user._id });
+        }
+    };
+    
+    const handleOnline = () => {
+        if (socket && projectId) {
+            if (socket.disconnected) socket.connect();
+            syncMissedMessages(projectId);
         }
     };
     
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
 
     return () => {
         window.removeEventListener('resize', handleResize);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         window.removeEventListener('focus', handleVisibilityChange);
+        window.removeEventListener('online', handleOnline);
     }
   }, [socket, projectId, user]);
 
