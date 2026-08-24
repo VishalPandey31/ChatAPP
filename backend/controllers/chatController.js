@@ -38,7 +38,7 @@ export const getMessages = async (req, res) => {
 export const getProjectMessages = async (req, res) => {
     try {
         const { projectId } = req.params;
-        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+        const limit = Math.min(parseInt(req.query.limit) || 30, 100);
         const before = req.query.before; // cursor: createdAt ISO string
         const after = req.query.after;
 
@@ -50,7 +50,8 @@ export const getProjectMessages = async (req, res) => {
         }
 
         const messages = await Message.find(query)
-            .populate('sender', 'name email profilePicture lastSeen')
+            .select('sender content iv encryptionVersion messageType replyTo clientMessageId edited deleted reactions status createdAt callMeta')
+            .populate('sender', 'name email profilePicture')
             .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } })
             .sort({ createdAt: -1 })
             .limit(limit)
