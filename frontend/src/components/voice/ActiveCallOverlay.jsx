@@ -26,6 +26,11 @@ const ActiveCallOverlay = () => {
     useEffect(() => {
         if (remoteAudioRef.current && remoteStream) {
             remoteAudioRef.current.srcObject = remoteStream;
+            
+            // Explicitly play to bypass browser autoplay policies when possible
+            remoteAudioRef.current.play().catch(e => {
+                console.warn("Audio autoplay prevented or failed:", e);
+            });
         }
     }, [remoteStream, isVisible]);
 

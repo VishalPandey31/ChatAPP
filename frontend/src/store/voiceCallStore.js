@@ -331,7 +331,8 @@ export const useVoiceCallStore = create((set, get) => ({
         };
 
         pc.ontrack = (event) => {
-            if (event.streams?.[0]) set({ remoteStream: event.streams[0] });
+            const stream = (event.streams && event.streams[0]) || new MediaStream([event.track]);
+            set({ remoteStream: stream });
         };
 
         pc.onconnectionstatechange = () => {
