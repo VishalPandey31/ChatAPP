@@ -4,6 +4,10 @@ import './VoiceCall.css';
 
 const padZero = (num) => num.toString().padStart(2, '0');
 
+const isMobileBrowser = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+};
+
 const ActiveCallOverlay = () => {
     const { 
         callState, 
@@ -76,42 +80,86 @@ const ActiveCallOverlay = () => {
     }, [callState, activeCall]);
 
     const toggleAudioOutput = async () => {
+        if (!remoteAudioRef.current) return;
+
+        // Best reliable browser-supported approach (Chrome 93+)
+        // Summons the native OS hardware selection dialog for audio output
+        if (typeof navigator.mediaDevices.selectAudioOutput === 'function') {
+            try {
+                const device = await navigator.mediaDevices.selectAudioOutput();
+                await remoteAudioRef.current.setSinkId(device.deviceId);
+                
+                // Try to loosely infer UI state from the selected label
+                const lbl = device.label.toLowerCase();
+                if (lbl.includes('earpiece') || lbl.includes('phone') || lbl.includes('built-in receiver')) {
+                    setAudioOutput('earpiece');
+                } else if (lbl.includes('speaker')) {
+                    setAudioOutput('speaker');
+                } else {
+                    // Update state to opposite just to show UI feedback
+                    setAudioOutput(prev => prev === 'speaker' ? 'earpiece' : 'speaker'); 
+                }
+                return;
+            } catch (err) {
+                console.warn('User cancelled or selectAudioOutput failed:', err);
+                return; // Do not manipulate UI if the native prompt was dismissed
+            }
+        }
+
+        // Standard JS web layer lacks hardware access to Android's physical top earpiece directly
+        // Thus, we explicitly alert this OS sandbox limitation instead of faking the UI state
+        if (isMobileBrowser()) {
+            alert("Platform limitation: Mobile web browsers restrict direct JavaScript access to the physical Earpiece layout. The OS forces default media to the Speakerphone. For private calls, please use a headset or Bluetooth device.");
+            return;
+        }
+
+        // Desktop Fallback logic (USB headsets, monitors, etc.)
         const newOutput = audioOutput === 'speaker' ? 'earpiece' : 'speaker';
         
-        if (remoteAudioRef.current && typeof remoteAudioRef.current.setSinkId === 'function') {
+        if (typeof remoteAudioRef.current.setSinkId === 'function') {
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
                 let targetDevice = null;
                 
                 if (newOutput === 'earpiece') {
-                    // Try to find a device containing earpiece, phone, or handset
                     targetDevice = audioOutputs.find(d => {
                         const lbl = d.label.toLowerCase();
-                        return lbl.includes('earpiece') || lbl.includes('phone') || lbl.includes('handset');
+                        return lbl.includes('earpiece') || lbl.includes('phone') || lbl.includes('handset') || lbl.includes('receiver');
                     });
-                } else {
-                    // Try to find a device containing speaker
-                    targetDevice = audioOutputs.find(d => d.label.toLowerCase().includes('speaker'));
-                    if (!targetDevice) {
-                        targetDevice = audioOutputs.find(d => d.deviceId === 'default') || audioOutputs[0];
+                    
+                    if (targetDevice) {
+                        await remoteAudioRef.current.setSinkId(targetDevice.deviceId);
+                    } else {
+                        try {
+                            await remoteAudioRef.current.setSinkId('default');
+                        } catch (e) {
+                            await remoteAudioRef.current.setSinkId('');
+                        }
                     }
-                }
-
-                if (targetDevice) {
-                    await remoteAudioRef.current.setSinkId(targetDevice.deviceId);
-                } else if (newOutput === 'speaker') {
-                    await remoteAudioRef.current.setSinkId(''); // fallback generic speaker output
                 } else {
-                    console.warn('Earpiece device not distinctly found in enumerateDevices.');
+                    targetDevice = audioOutputs.find(d => {
+                        const lbl = d.label.toLowerCase();
+                        return lbl.includes('speaker') && !lbl.includes('default');
+                    });
+                    
+                    if (!targetDevice) {
+                        targetDevice = audioOutputs.find(d => d.label.toLowerCase().includes('speaker'));
+                    }
+                    
+                    if (targetDevice) {
+                        await remoteAudioRef.current.setSinkId(targetDevice.deviceId);
+                    } else {
+                        await remoteAudioRef.current.setSinkId(''); 
+                    }
                 }
                 setAudioOutput(newOutput);
             } catch (err) {
                 console.warn('setSinkId API failed or hardware rejected routing:', err);
-                setAudioOutput(newOutput); // Keep UI state toggled to allow OS-level hardware routing matching
+                setAudioOutput(newOutput); 
             }
         } else {
-            console.warn('setSinkId not supported on this browser (e.g. iOS Safari). Audio routing gracefully handled by OS constraints.');
+            console.warn('setSinkId not supported on this browser.');
             setAudioOutput(newOutput);
         }
     };

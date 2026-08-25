@@ -84,6 +84,19 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                 if (replySenderId && replySenderId !== myId) recipientId = replySenderId;
             }
         }
+
+        // Final ultimate fallback: if still null, scan the entire messages cache for someone else
+        if (!recipientId && msg.projectId) {
+            const cachedMsgs = useChatStore.getState().messagesCache[msg.projectId] || useChatStore.getState().messages || [];
+            const otherMsg = cachedMsgs.find(m => {
+                const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
+                return sId && sId !== myId;
+            });
+            if (otherMsg) {
+                recipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+            }
+        }
+
         if (!recipientId) return decryptedMsg;
 
         const sharedKey = await getSharedSecret(recipientId);
@@ -187,7 +200,19 @@ export const useChatStore = create((set, get) => ({
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
 
-            const { activeRecipientId } = get();
+            let { activeRecipientId } = get();
+
+            // Heuristic extraction for activeRecipientId if unmounted or delayed in ChatApp
+            if (!activeRecipientId) {
+                const myId = useAuthStore.getState().user?._id?.toString();
+                const otherMsg = data.find(m => {
+                    const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
+                    return sId && sId !== myId;
+                });
+                if (otherMsg) {
+                    activeRecipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                }
+            }
 
             // PARALLEL BATCH DECRYPTION: Resolves all E2EE messages including deep nested replyTos before DOM insertion
             const decryptedMessages = await Promise.all(
@@ -233,7 +258,18 @@ export const useChatStore = create((set, get) => ({
             const data = await res.json();
             if (!data || data.length === 0) return;
 
-            const { activeRecipientId } = get();
+            let { activeRecipientId } = get();
+            if (!activeRecipientId) {
+                const myId = useAuthStore.getState().user?._id?.toString();
+                const otherMsg = data.find(m => {
+                    const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
+                    return sId && sId !== myId;
+                });
+                if (otherMsg) {
+                    activeRecipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                }
+            }
+
             const decryptedMessages = await Promise.all(
                 data.map(msg => decryptSingleMessage(msg, activeRecipientId))
             );
@@ -344,8 +380,8 @@ export const useChatStore = create((set, get) => ({
             sender: currentUser,
             projectId,
             content,            // always show original plaintext in optimistic update
-            iv,
-            encryptionVersion,
+            iv: null,           // DO NOT LEAK the IV into state, since content is plaintext
+            encryptionVersion: 0, // DO NOT LEAK the encryptionVersion into state, since content is plaintext
             messageType,
             status: 'SENDING',
             createdAt: new Date().toISOString()
@@ -394,12 +430,12 @@ export const useChatStore = create((set, get) => ({
         let decryptedMsg = await decryptSingleMessage(msg, activeRecipientId);
 
         if (isOwnMessage) {
-            // If encryptionVersion is 1, our own message was already shown as plaintext via optimistic update. 
-            // We preserve that plaintext to prevent flicker or fallback errors, but we keep the decrypted replyTo.
-            if (msg.encryptionVersion === 1 && msg.clientMessageId) {
+            // Check if our own message was already perfectly preserved 
+            // We use clientMessageId to match our original frontend plaintext payload
+            if (msg.clientMessageId) {
                 const optimistic = get().messages.find(m => m.clientMessageId === msg.clientMessageId);
                 if (optimistic) {
-                    decryptedMsg.content = optimistic.content; // keep optimistic plaintext
+                    decryptedMsg.content = optimistic.content; // keep perfectly preserved plaintext
                     if (optimistic.replyTo) {
                         decryptedMsg.replyTo = optimistic.replyTo; // preserve perfectly decrypted optimistic reply
                     }
