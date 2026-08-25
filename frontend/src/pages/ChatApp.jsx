@@ -199,19 +199,26 @@ const ChatApp = () => {
     }
     const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible' && socket && projectId && user) {
-            if (socket.disconnected) {
-                socket.connect(); // Force reconnect if OS killed it during suspension
+            // Aggressive Resume Cycle to bypass zombie mobile sockets
+            if (socket.connected) {
+                // Background delta sync triggered dynamically
+                syncMissedMessages(projectId);
+                useChatStore.getState().flushPendingMessages(socket);
+                socket.emit("project_messages_seen", { projectId, userId: user._id });
+            } else {
+                console.warn("[Lifecycle] Visibility resumed but socket dead, attempting reconnect");
+                socket.connect();
             }
-            // Trigger delta-sync safely in background
-            syncMissedMessages(projectId);
-            socket.emit("project_messages_seen", { projectId, userId: user._id });
         }
     };
     
     const handleOnline = () => {
         if (socket && projectId) {
             if (socket.disconnected) socket.connect();
-            syncMissedMessages(projectId);
+            else {
+                syncMissedMessages(projectId);
+                useChatStore.getState().flushPendingMessages(socket);
+            }
         }
     };
     
@@ -276,9 +283,20 @@ const ChatApp = () => {
 
   useEffect(() => {
     if (socket && projectId) {
-      // Connect to the specific project room
-      socket.emit("join_project", projectId);
-      socket.emit("project_messages_seen", { projectId, userId: user._id });
+      // Connect to the specific project room immediately if socket is alive
+      if (socket.connected) {
+          socket.emit("join_project", projectId);
+          socket.emit("project_messages_seen", { projectId, userId: user?._id });
+      }
+
+      // CRITICAL: Rejoin room and flush queue whenever auto-reconnect succeeds
+      const onConnectResume = () => {
+          console.warn("[Lifecycle] Socket successfully (re)connected, syncing room state");
+          socket.emit("join_project", projectId);
+          syncMissedMessages(projectId);
+          useChatStore.getState().flushPendingMessages(socket);
+      };
+      socket.on('connect', onConnectResume);
 
       const handleReceiveMsg = (msg) => {
         // Since we are in the room, any message received is for this project
@@ -329,6 +347,7 @@ const ChatApp = () => {
       socket.on('hide_typing_project', handleHideTyping);
 
       return () => {
+        socket.off('connect', onConnectResume);
         socket.off('receive_project_message', handleReceiveMsg);
         socket.off('chat_cleared', handleClear);
         socket.off('message_edited', handleMessageEdited);

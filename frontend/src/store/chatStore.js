@@ -11,9 +11,14 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 // In-memory cache of derived shared secrets per userId
 const sharedSecretCache = new Map();
+// Promise memoization cache to prevent Cache Stampede during parallel decryption mapping
+const sharedSecretPromiseCache = new Map();
 
 export const clearUserEncryptionCache = (userId) => {
-    if (userId) sharedSecretCache.delete(userId);
+    if (userId) {
+        sharedSecretCache.delete(userId);
+        sharedSecretPromiseCache.delete(userId);
+    }
 };
 
 /**
@@ -26,23 +31,35 @@ async function getSharedSecret(recipientId) {
         return sharedSecretCache.get(recipientId);
     }
 
+    // Memoization return (Thundering Herd protection)
+    if (sharedSecretPromiseCache.has(recipientId)) {
+        return sharedSecretPromiseCache.get(recipientId);
+    }
+
     const myPrivateKey = useAuthStore.getState().myPrivateKey;
     if (!myPrivateKey) return null;
 
-    try {
-        const res = await fetch(`${BACKEND_URL}/api/auth/keys/${recipientId}`, {
-            credentials: 'include'
-        });
-        if (!res.ok) return null;
-        const { publicKey: pubKeyJwk } = await res.json();
-        const recipientPublicKey = await importPublicKey(pubKeyJwk);
-        const sharedKey = await deriveSharedSecret(myPrivateKey, recipientPublicKey);
-        sharedSecretCache.set(recipientId, sharedKey);
-        return sharedKey;
-    } catch (err) {
-        console.warn('[E2EE] Could not derive shared secret for', recipientId);
-        return null;
-    }
+    const fetchPromise = (async () => {
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/auth/keys/${recipientId}`, {
+                credentials: 'include'
+            });
+            if (!res.ok) return null;
+            const { publicKey: pubKeyJwk } = await res.json();
+            const recipientPublicKey = await importPublicKey(pubKeyJwk);
+            const sharedKey = await deriveSharedSecret(myPrivateKey, recipientPublicKey);
+            sharedSecretCache.set(recipientId, sharedKey);
+            return sharedKey;
+        } catch (err) {
+            console.warn('[E2EE] Could not derive shared secret for', recipientId);
+            return null;
+        } finally {
+            sharedSecretPromiseCache.delete(recipientId); // Clean up the lock
+        }
+    })();
+
+    sharedSecretPromiseCache.set(recipientId, fetchPromise);
+    return fetchPromise;
 }
 
 /**
@@ -150,9 +167,10 @@ export const useChatStore = create((set, get) => ({
     chats: [],
     messages: [],
     messagesCache: {}, // Local cache to prevent UI freeze: projectId -> messages array
-    activeChat: null,
+    pendingMessages: [],
     isChatsLoading: false,
     isMessagesLoading: false,
+    activeChat: null,
     currentProjectId: null,
     activeRecipientId: null, // E2EE: who we are chatting with (the OTHER user's ID)
 
@@ -328,6 +346,35 @@ export const useChatStore = create((set, get) => ({
         });
     },
 
+    flushPendingMessages: (activeSocket) => {
+        const { pendingMessages } = get();
+        if (!activeSocket || !pendingMessages || pendingMessages.length === 0) return;
+
+        pendingMessages.forEach(({ payload, optimisticMsg }) => {
+            // Force timeout tracking on reconnect buffer flush to prevent hanging again
+            activeSocket.timeout(5000).emit("send_project_message", payload, (err, response) => {
+                if (err) {
+                    console.warn("[Lifecycle] Message flush timeout... keeping in queue", err);
+                    activeSocket.disconnect();
+                    activeSocket.connect();
+                } else if (response && response.status === 'ok') {
+                    set(state => {
+                        const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== payload.clientMessageId);
+                        const newMessages = state.messages.map(m => {
+                            if (m.clientMessageId === payload.clientMessageId) return { ...m, status: 'SENT' };
+                            return m;
+                        });
+                        const newCache = { ...state.messagesCache };
+                        if (payload.projectId) {
+                            newCache[payload.projectId] = newMessages;
+                        }
+                        return { pendingMessages: newPending, messages: newMessages, messagesCache: newCache };
+                    });
+                }
+            });
+        });
+    },
+
     sendProjectMessage: async (projectId, content, replyToId = null, messageType = 'TEXT') => {
         const socket = useAuthStore.getState().socket;
         if (!socket) return;
@@ -405,12 +452,44 @@ export const useChatStore = create((set, get) => ({
 
         set(state => {
             const newMessages = [...state.messages, optimisticMsg];
+
+            // Queue pending if deduplicated
+            const newPending = [...(state.pendingMessages || [])];
+            if (!newPending.some(p => p.payload.clientMessageId === clientMessageId)) {
+                newPending.push({ payload, optimisticMsg });
+            }
+
             return {
                 messages: newMessages,
-                messagesCache: { ...state.messagesCache, [projectId]: newMessages }
+                messagesCache: { ...state.messagesCache, [projectId]: newMessages },
+                pendingMessages: newPending
             };
         });
-        socket.emit("send_project_message", payload);
+
+        // Smart emission with zombie socket timeout
+        if (!socket.connected) {
+            console.warn('[Lifecycle] Socket disconnected naturally, queued pending msg and forcing network connect');
+            socket.connect();
+            return;
+        }
+
+        socket.timeout(5000).emit("send_project_message", payload, (err, response) => {
+            if (err) {
+                console.warn("[Lifecycle] Zombie socket detected on emit timeout. Enforcing reconnect.", err);
+                // Payload already stored in pendingMessages, forcefully recycle connection
+                socket.disconnect();
+                socket.connect();
+            } else if (response && response.status === 'ok') {
+                // Wipe from pending list and transition SENDING -> SENT
+                set(state => {
+                    const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                    const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'SENT' } : m);
+                    const newCache = { ...state.messagesCache };
+                    newCache[projectId] = newMsgs;
+                    return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                });
+            }
+        });
     },
 
     /**
