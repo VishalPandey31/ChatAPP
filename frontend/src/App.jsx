@@ -51,6 +51,9 @@ const App = () => {
                 window.location.replace("https://www.youtube.com");
             }
             return;
+        }
+    }
+
     const navEntries = performance.getEntriesByType("navigation");
     const isReload = navEntries.length > 0 && navEntries[0].type === "reload";
 
@@ -105,8 +108,11 @@ const App = () => {
             subscribeToPushNotifications();
         }).catch(err => console.error("Global SW sync failed", err));
     }
-    
-    return () => window.removeEventListener('beforeunload', handleUnload);
+    return () => {
+        window.removeEventListener('beforeunload', handleUnload);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        clearInterval(heartbeatInterval);
+    };
   }, [checkAuth]);
 
   return (
