@@ -517,7 +517,21 @@ const ChatApp = () => {
   }
 
   return (
-    <div className="mobile-chat-wrapper" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0a0a0a', overflow: 'hidden' }}>
+      {/* Explicit Override for Jumbo Emojis to beat ServiceWorker CSS cache */}
+      <style>{`
+          .chat-bubble[data-isjumbo="true"] {
+              font-size: 56px !important;
+              line-height: 1.2 !important;
+              padding: 0 !important;
+              background: transparent !important;
+              border: none !important;
+              box-shadow: none !important;
+          }
+      `}</style>
+      
+      {/* Voice Call Overlay & Ringing Modals */}
+      <div className="mobile-chat-wrapper" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
       {/* Left Sidebar removed for full screen mode */}
 
       {/* FULL SCREEN CHAT AREA */}
@@ -803,7 +817,7 @@ const ChatApp = () => {
                             <Reply size={14} style={{ transform: isMine ? 'scaleX(-1)' : 'none' }} />
                           </div>
 
-                          <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} className="chat-bubble relative group" 
+                          <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} data-isjumbo={Boolean(isJumbo)} className="chat-bubble relative group" 
                             onTouchStart={(e) => { handleTouchStart(e); handleBubbleTouchStart(e); }}
                             onTouchMove={(e) => { handleTouchMove(e); handleBubbleTouchEnd(e); }}
                             onTouchEnd={(e) => { handleTouchEnd(e, msg); handleBubbleTouchEnd(e); }}
