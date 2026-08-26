@@ -268,6 +268,48 @@ export const useChatStore = create(
                 }
             },
 
+            loadMoreProjectMessages: async (projectId) => {
+                const currentMessages = get().messagesCache[projectId] || get().messages;
+                if (!currentMessages || currentMessages.length === 0) return;
+
+                const oldestMessageDate = currentMessages[0].createdAt;
+
+                try {
+                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}?before=${oldestMessageDate}`, { credentials: 'include' });
+                    if (!res.ok) return;
+                    const data = await res.json();
+
+                    if (data.length === 0) return;
+
+                    let { activeRecipientId } = get();
+                    if (!activeRecipientId) {
+                        const myId = useAuthStore.getState().user?._id?.toString();
+                        const otherMsg = data.find(m => {
+                            const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
+                            return sId && sId !== myId;
+                        });
+                        if (otherMsg) {
+                            activeRecipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                        }
+                    }
+
+                    const decryptedMessages = await Promise.all(
+                        data.map(msg => decryptSingleMessage(msg, activeRecipientId))
+                    );
+
+                    set(state => {
+                        const existingMsgs = state.messagesCache[projectId] || state.messages;
+                        const newMessages = [...decryptedMessages, ...existingMsgs];
+                        return {
+                            messages: state.currentProjectId === projectId ? newMessages : state.messages,
+                            messagesCache: { ...state.messagesCache, [projectId]: newMessages }
+                        };
+                    });
+                } catch (err) {
+                    console.error("[Pagination]", err);
+                }
+            },
+
             syncMissedMessages: async (projectId) => {
                 const cached = get().messagesCache[projectId] || (get().currentProjectId === projectId ? get().messages : []);
                 if (!cached || cached.length === 0) return;

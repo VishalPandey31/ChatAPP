@@ -137,12 +137,21 @@ export const useAuthStore = create((set, get) => ({
     },
     checkAuth: async () => {
         try {
-            // Force logout on every reload/new tab to require re-login
-            await fetch(`${BACKEND_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' });
-            Cookies.remove('token');
+            const res = await fetch(`${BACKEND_URL}/api/auth/me`, { credentials: 'include' });
+            if (!res.ok) {
+                Cookies.remove('token');
+                set({ user: null, isCheckingAuth: false });
+                return;
+            }
+            const data = await res.json();
+            set({ user: data, isCheckingAuth: false });
+
+            get().connectSocket();
+            get()._initE2EEKeys().then(keys => {
+                if (keys) get()._uploadPublicKey(keys.publicKeyJwk);
+            });
         } catch (err) {
             console.error(err);
-        } finally {
             set({ user: null, isCheckingAuth: false });
         }
     },

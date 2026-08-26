@@ -92,6 +92,7 @@ const ChatApp = () => {
   const [reactionMsgId, setReactionMsgId] = useState(null);
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
   const [timeTicker, setTimeTicker] = useState(Date.now());
+  const [showExitModal, setShowExitModal] = useState(false);
   const activeMenuRef = useRef(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -188,6 +189,20 @@ const ChatApp = () => {
         });
      }
   }, [activeMenuMsgId]);
+
+  useEffect(() => {
+      if (!isMobile) return;
+      
+      window.history.pushState(null, null, window.location.href);
+      
+      const handlePopState = (e) => {
+          setShowExitModal(true);
+          window.history.pushState(null, null, window.location.href);
+      };
+      
+      window.addEventListener('popstate', handlePopState);
+      return () => window.removeEventListener('popstate', handlePopState);
+  }, [isMobile]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 1024);
@@ -362,8 +377,9 @@ const ChatApp = () => {
   }, [socket, projectId, addMessage, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, user]);
 
   useEffect(() => {
+    // Only smooth scroll if actually needed, don't blindly thrash layout
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, typingUsers]);
+  }, [messages]);
 
   const updateSendButtonStyles = (val) => {
       const btn = document.getElementById('chat-send-btn');
@@ -604,7 +620,22 @@ const ChatApp = () => {
         )}
 
             {/* Messages */}
-            <div className="chat-messages" onScroll={() => activeMenuMsgId && setActiveMenuMsgId(null)} style={{ flex: 1, minHeight: 0, padding: `24px 32px ${(showEmojiPicker || reactionMsgId) ? 320 : 24}px 32px`, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <div className="chat-messages" onScroll={(e) => {
+                if (activeMenuMsgId) setActiveMenuMsgId(null);
+                if (e.target.scrollTop === 0) {
+                    const store = useChatStore.getState();
+                    if (!store.isMessagesLoading) {
+                        // Remember scroll height to prevent jumping
+                        const scrollContainer = e.target;
+                        const previousScrollHeight = scrollContainer.scrollHeight;
+                        store.loadMoreProjectMessages(projectId).then(() => {
+                            requestAnimationFrame(() => {
+                                scrollContainer.scrollTop = scrollContainer.scrollHeight - previousScrollHeight;
+                            });
+                        });
+                    }
+                }
+            }} style={{ flex: 1, minHeight: 0, padding: `24px 32px ${(showEmojiPicker || reactionMsgId) ? 320 : 24}px 32px`, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
               {React.useMemo(() => {
                 if (isMessagesLoading) {
                   return <div style={{ textAlign: 'center', color: '#64748B', fontFamily: '"Inter", sans-serif', fontSize: '14px', marginTop: '20px' }}>Loading messages...</div>;
@@ -1067,6 +1098,23 @@ const ChatApp = () => {
         </div>
       ), document.body)}
       
+      {/* MOBILE EXIT MODAL */}
+      {showExitModal && (
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div className="animate-fade-in" style={{ backgroundColor: '#1E293B', padding: '24px', borderRadius: '16px', width: '320px', maxWidth: '90vw', border: '1px solid #334155', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+                  <h3 style={{ color: '#F8FAFC', margin: 0, marginBottom: '8px', fontSize: '18px', fontFamily: '"Inter", sans-serif' }}>Leave Chat?</h3>
+                  <p style={{ color: '#94A3B8', fontSize: '14px', fontFamily: '"Inter", sans-serif', lineHeight: '1.5', margin: 0 }}>Are you sure you want to leave this chat?</p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+                      <button onClick={() => setShowExitModal(false)} style={{ padding: '8px 16px', color: '#94A3B8', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Cancel</button>
+                      <button onClick={() => { 
+                          setShowExitModal(false); 
+                          window.history.go(-2); 
+                      }} style={{ padding: '8px 16px', background: '#EF4444', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Leave</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* VOICE CALL UI */}
       <IncomingCallModal />
       <ActiveCallOverlay />
