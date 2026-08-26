@@ -188,11 +188,8 @@ button:focus {
     padding: 14px 16px !important;
   }
 
-  /* Inner Bubble Scale */
-  .chat-bubble {
-    padding: 10px 14px !important;
-    font-size: 14px !important;
-  }
+  /* Inner Bubble Scale handled by React inline styles */
+  .chat-bubble {}
 
   /* Input Container */
   .chat-input-wrapper {
