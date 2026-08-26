@@ -809,16 +809,16 @@ const ChatApp = () => {
                             onTouchCancel={handleBubbleTouchEnd}
                             onContextMenu={(e) => { if (isMobile) { e.preventDefault(); return; } e.preventDefault(); setActiveMenuMsgId(msg._id); }}
                             style={{ 
-                            background: isJumbo ? 'transparent' : (isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F'), 
+                            background: isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F', 
                             color: isMine ? '#ffffff' : '#F8FAFC',
-                            padding: isJumbo ? '0' : '12px 16px', 
+                            padding: '12px 16px', 
                             borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                            border: isJumbo ? 'none' : (isMine ? 'none' : '1px solid #243044'),
+                            border: isMine ? 'none' : '1px solid #243044',
                             wordBreak: 'break-word',
-                            lineHeight: isJumbo ? '1.2' : '1.5',
-                            fontSize: isJumbo ? '56px' : '15px',
+                            lineHeight: '1.5',
+                            fontSize: '15px',
                             fontFamily: '"Inter", sans-serif',
-                            boxShadow: isJumbo ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
                             position: 'relative',
                             userSelect: 'none', // Prevent text selection on mobile swipe
                             width: '100%',
@@ -958,7 +958,9 @@ const ChatApp = () => {
                             ) : msg.messageType === 'IMAGE' ? (
                                 <img src={msg.content} alt="Shared UI" draggable={false} style={{ maxWidth: '280px', maxHeight: '280px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => setShowImageLightbox(msg.content)} />
                             ) : (
-                                renderMessageContent(msg.content)
+                                <div style={{ fontSize: isJumbo ? '48px' : 'inherit', lineHeight: isJumbo ? '1.1' : 'inherit', paddingTop: isJumbo ? '2px' : '0', paddingBottom: isJumbo ? '6px' : '0' }}>
+                                    {renderMessageContent(msg.content)}
+                                </div>
                             )}
 
                             {msg.edited && !msg.deleted && <span style={{ fontSize: '11px', marginLeft: '6px', opacity: 0.7 }}>(edited)</span>}
