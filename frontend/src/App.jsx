@@ -54,53 +54,19 @@ const App = () => {
         }
     }
 
-    const navEntries = performance.getEntriesByType("navigation");
-    const isReload = navEntries.length > 0 && navEntries[0].type === "reload";
-
-    const enforceSecurity = () => {
-        const lastActiveStr = sessionStorage.getItem('last_active_time');
-        const now = Date.now();
-        
-        if (isReload) {
-            sessionStorage.setItem('last_active_time', now.toString()); // Allow
+    const hasActiveSession = sessionStorage.getItem('active_session_flag');
+    if (!hasActiveSession) {
+        sessionStorage.setItem('active_session_flag', 'true');
+        useAuthStore.getState().logout(false).then(() => {
+            // After forced logout on a fresh tab, attempt a checkAuth just in case 
+            // (it will naturally fail and redirect them to login cleanly)
             checkAuth();
-            return;
-        }
-
-        // If no time (fresh tab), or explicitly zeroed by unload, or backgrounded for > 30 seconds
-        if (!lastActiveStr || lastActiveStr === '0' || (now - parseInt(lastActiveStr, 10)) > 30000) {
-            sessionStorage.setItem('last_active_time', now.toString());
-            useAuthStore.getState().logout(false).then(() => { checkAuth(); });
-        } else {
-            sessionStorage.setItem('last_active_time', now.toString());
-            checkAuth();
-        }
-    };
-    
-    enforceSecurity();
+        });
+    } else {
+        checkAuth();
+    }
 
     const handleUnload = () => {
-        sessionStorage.setItem('last_active_time', '0');
-        // We still try to explicitly signal the backend since the user is leaving
-        useAuthStore.getState().logout(true);
-    };
-
-    const heartbeatInterval = setInterval(() => {
-        if (document.visibilityState === 'visible') {
-            sessionStorage.setItem('last_active_time', Date.now().toString());
-        }
-    }, 5000);
-
-    const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible') {
-            enforceSecurity();
-        } else {
-            sessionStorage.setItem('last_active_time', Date.now().toString());
-        }
-    };
-
-    window.addEventListener('beforeunload', handleUnload);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
     
     // Globally sync Background Service Worker push connection on boot if previously granted
     if (window.Notification && window.Notification.permission === 'granted') {
@@ -108,11 +74,8 @@ const App = () => {
             subscribeToPushNotifications();
         }).catch(err => console.error("Global SW sync failed", err));
     }
-    return () => {
-        window.removeEventListener('beforeunload', handleUnload);
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
-        clearInterval(heartbeatInterval);
-    };
+    
+    return () => window.removeEventListener('beforeunload', handleUnload);
   }, [checkAuth]);
 
   return (

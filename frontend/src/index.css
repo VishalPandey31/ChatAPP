@@ -210,6 +210,10 @@ button:focus {
     font-size: 14px !important;
   }
 
+  .chat-bubble.jumbo-emoji-override {
+    font-size: 42px !important;
+  }
+
   /* Input Container */
   .chat-input-wrapper {
     padding: 0 16px 16px !important;

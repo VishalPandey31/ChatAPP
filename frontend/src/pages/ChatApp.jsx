@@ -802,7 +802,7 @@ const ChatApp = () => {
                             <Reply size={14} style={{ transform: isMine ? 'scaleX(-1)' : 'none' }} />
                           </div>
 
-                          <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} className="chat-bubble relative group" 
+                          <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} className={`chat-bubble relative group ${isJumbo ? 'jumbo-emoji-override' : ''}`} 
                             onTouchStart={(e) => { handleTouchStart(e); handleBubbleTouchStart(e); }}
                             onTouchMove={(e) => { handleTouchMove(e); handleBubbleTouchEnd(e); }}
                             onTouchEnd={(e) => { handleTouchEnd(e, msg); handleBubbleTouchEnd(e); }}
@@ -815,8 +815,8 @@ const ChatApp = () => {
                             borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                             border: isMine ? 'none' : '1px solid #243044',
                             wordBreak: 'break-word',
-                            lineHeight: '1.5',
-                            fontSize: '15px',
+                            lineHeight: isJumbo ? '1.2' : '1.5',
+                            fontSize: '15px', 
                             fontFamily: '"Inter", sans-serif',
                             boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
                             position: 'relative',
@@ -958,9 +958,7 @@ const ChatApp = () => {
                             ) : msg.messageType === 'IMAGE' ? (
                                 <img src={msg.content} alt="Shared UI" draggable={false} style={{ maxWidth: '280px', maxHeight: '280px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => setShowImageLightbox(msg.content)} />
                             ) : (
-                                <div style={{ fontSize: isJumbo ? '48px' : 'inherit', lineHeight: isJumbo ? '1.1' : 'inherit', paddingTop: isJumbo ? '2px' : '0', paddingBottom: isJumbo ? '6px' : '0' }}>
-                                    {renderMessageContent(msg.content)}
-                                </div>
+                                renderMessageContent(msg.content)
                             )}
 
                             {msg.edited && !msg.deleted && <span style={{ fontSize: '11px', marginLeft: '6px', opacity: 0.7 }}>(edited)</span>}
