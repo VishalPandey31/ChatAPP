@@ -54,14 +54,19 @@ const App = () => {
         }
     }
 
-    checkAuth();
+    const hasActiveSession = sessionStorage.getItem('active_session_flag');
+    if (!hasActiveSession) {
+        sessionStorage.setItem('active_session_flag', 'true');
+        useAuthStore.getState().logout(false).then(() => {
+            // After forced logout on a fresh tab, attempt a checkAuth just in case 
+            // (it will naturally fail and redirect them to login cleanly)
+            checkAuth();
+        });
+    } else {
+        checkAuth();
+    }
 
     const handleUnload = () => {
-      // Fire synchronous HTTP logout without expecting Response logic
-      useAuthStore.getState().logout(true);
-    };
-
-    window.addEventListener('beforeunload', handleUnload);
     
     // Globally sync Background Service Worker push connection on boot if previously granted
     if (window.Notification && window.Notification.permission === 'granted') {
