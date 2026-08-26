@@ -47,6 +47,14 @@ const renderMessageContent = (content) => {
     });
 };
 
+const isOnlyEmojis = (str) => {
+    if (!str) return false;
+    const noSpace = str.replace(/[\s\n]/g, '');
+    if (noSpace.length === 0) return false;
+    const emojiRegex = /^[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{200D}\u{FE0F}]+$/u;
+    return emojiRegex.test(noSpace) && noSpace.length <= 6;
+};
+
 const formatLastSeen = (dateInput) => {
     if (!dateInput) return 'Offline';
     const date = new Date(dateInput);
@@ -754,6 +762,8 @@ const ChatApp = () => {
                       if (pressTimer.current) clearTimeout(pressTimer.current);
                   };
 
+                  const isJumbo = msg.messageType === 'TEXT' && !msg.deleted && isOnlyEmojis(msg.content);
+
                   return (
                     <div key={index} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: '20px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '65%' }}>
@@ -799,16 +809,16 @@ const ChatApp = () => {
                             onTouchCancel={handleBubbleTouchEnd}
                             onContextMenu={(e) => { if (isMobile) { e.preventDefault(); return; } e.preventDefault(); setActiveMenuMsgId(msg._id); }}
                             style={{ 
-                            background: isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F', 
+                            background: isJumbo ? 'transparent' : (isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F'), 
                             color: isMine ? '#ffffff' : '#F8FAFC',
-                            padding: '12px 16px', 
+                            padding: isJumbo ? '0' : '12px 16px', 
                             borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                            border: isMine ? 'none' : '1px solid #243044',
+                            border: isJumbo ? 'none' : (isMine ? 'none' : '1px solid #243044'),
                             wordBreak: 'break-word',
-                            lineHeight: '1.5',
-                            fontSize: '15px',
+                            lineHeight: isJumbo ? '1.2' : '1.5',
+                            fontSize: isJumbo ? '56px' : '15px',
                             fontFamily: '"Inter", sans-serif',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                            boxShadow: isJumbo ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
                             position: 'relative',
                             userSelect: 'none', // Prevent text selection on mobile swipe
                             width: '100%',
@@ -940,10 +950,25 @@ const ChatApp = () => {
 
                             {/* Reactions */}
                             {msg.reactions && msg.reactions.length > 0 && (
-                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
-                                    {Object.entries(msg.reactions.reduce((acc, r) => { acc[r.reaction] = (acc[r.reaction] || 0) + 1; return acc; }, {})).map(([emoji, count]) => (
-                                        <div key={emoji} onClick={() => { if (user) socket.emit("project_message_reaction", { messageId: msg._id, userId: user._id, reaction: emoji, projectId }); }} style={{ backgroundColor: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: '12px', fontSize: '12px', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.1)' }}>
-                                            {emoji} {count}
+                                <div style={{ 
+                                    position: 'absolute', 
+                                    bottom: '-12px', 
+                                    [isMine ? 'right' : 'left']: isJumbo ? '0px' : '16px', 
+                                    display: 'flex', 
+                                    alignItems: 'center',
+                                    gap: '2px', 
+                                    flexWrap: 'nowrap',
+                                    backgroundColor: '#1E293B',
+                                    padding: '2px 6px',
+                                    borderRadius: '12px',
+                                    border: '1px solid #334155',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                                    zIndex: 5
+                                }}>
+                                    {Object.entries(msg.reactions.reduce((acc, r) => { acc[r.reaction] = (acc[r.reaction] || 0) + 1; return acc; }, {})).slice(0, 4).map(([emoji, count]) => (
+                                        <div key={emoji} onClick={(e) => { e.stopPropagation(); if (user) socket.emit("project_message_reaction", { messageId: msg._id, userId: user._id, reaction: emoji, projectId }); }} style={{ fontSize: '13px', display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
+                                            <span>{emoji}</span>
+                                            {count > 1 && <span style={{ fontSize: '11px', marginLeft: '3px', color: '#CBD5E1', fontWeight: 'bold' }}>{count}</span>}
                                         </div>
                                     ))}
                                 </div>
