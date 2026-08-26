@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useProjectStore } from '../store/projectStore';
-import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical, Pencil, Check, CheckCheck, Clock, Lock } from 'lucide-react';
+import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical, Pencil, Check, CheckCheck, Clock, Lock, ChevronDown } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
 import EmojiPicker from 'emoji-picker-react';
@@ -73,7 +73,7 @@ const formatLastSeen = (dateInput) => {
 
 const ChatApp = () => {
   const { user, logout, socket, onlineUsers, lastSeenMap } = useAuthStore();
-  const { messages, isMessagesLoading, getProjectMessages, syncMissedMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, setActiveRecipientId } = useChatStore();
+  const { messages, isMessagesLoading, isMoreMessagesLoading, getProjectMessages, syncMissedMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, setActiveRecipientId } = useChatStore();
   const initVoiceListeners = useVoiceCallStore(s => s.initListeners);
   const removeVoiceListeners = useVoiceCallStore(s => s.removeListeners);
   const { projects, fetchProjects } = useProjectStore();
@@ -95,6 +95,9 @@ const ChatApp = () => {
   const [showExitModal, setShowExitModal] = useState(false);
   const activeMenuRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const isScrolledUpRef = useRef(false);
+  const [showScrollArrow, setShowScrollArrow] = useState(false);
+  const [unreadScrollCount, setUnreadScrollCount] = useState(0);
   const fileInputRef = useRef(null);
   const pressTimer = useRef(null);
   const isTypingRef = useRef(false);
@@ -320,6 +323,10 @@ const ChatApp = () => {
         // Push Notification & Sound if not the sender
         const incomingSenderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
         if (incomingSenderId !== user._id) {
+            if (isScrolledUpRef.current) {
+                setUnreadScrollCount(prev => prev + 1);
+            }
+            
             socket.emit("project_message_delivered", { messageId: msg._id, projectId, receiverId: user._id });
             
             const isFocused = document.visibilityState === 'visible' && document.hasFocus();
@@ -378,7 +385,13 @@ const ChatApp = () => {
 
   useEffect(() => {
     // Only smooth scroll if actually needed, don't blindly thrash layout
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+    const senderId = lastMsg && (typeof lastMsg.sender === 'object' ? lastMsg.sender?._id : lastMsg.sender);
+    const isMine = senderId === user._id;
+
+    if (!isScrolledUpRef.current || isMine) {
+       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   const updateSendButtonStyles = (val) => {
@@ -622,11 +635,24 @@ const ChatApp = () => {
             {/* Messages */}
             <div className="chat-messages" onScroll={(e) => {
                 if (activeMenuMsgId) setActiveMenuMsgId(null);
-                if (e.target.scrollTop < 50) {
+                
+                const scrollContainer = e.target;
+                const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+                const isUp = scrollHeight - scrollTop - clientHeight > 150;
+                
+                if (isUp !== isScrolledUpRef.current) {
+                    isScrolledUpRef.current = isUp;
+                    setShowScrollArrow(isUp);
+                }
+                
+                if (!isUp && unreadScrollCount > 0) {
+                    setUnreadScrollCount(0);
+                }
+
+                if (scrollTop < 50) {
                     const store = useChatStore.getState();
                     if (!store.isMessagesLoading && !store.isMoreMessagesLoading) {
-                        const scrollContainer = e.target;
-                        const previousScrollHeight = scrollContainer.scrollHeight;
+                        const previousScrollHeight = scrollHeight;
                         useChatStore.setState({ isMoreMessagesLoading: true }); // Prevent immediate refires
                         store.loadMoreProjectMessages(projectId).finally(() => {
                             setTimeout(() => {
@@ -636,6 +662,15 @@ const ChatApp = () => {
                     }
                 }
             }} style={{ flex: 1, minHeight: 0, padding: `24px 32px ${(showEmojiPicker || reactionMsgId) ? 320 : 24}px 32px`, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+              
+              {isMoreMessagesLoading && (
+                  <div style={{ textAlign: 'center', padding: '12px 0', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', color: '#94A3B8', fontSize: '13px' }}>
+                      <div style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#3B82F6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                      Loading older messages...
+                      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  </div>
+              )}
+
               {React.useMemo(() => {
                 if (isMessagesLoading) {
                   return <div style={{ textAlign: 'center', color: '#64748B', fontFamily: '"Inter", sans-serif', fontSize: '14px', marginTop: '20px' }}>Loading messages...</div>;
@@ -1097,6 +1132,57 @@ const ChatApp = () => {
             </div>
         </div>
       ), document.body)}
+      ), document.body)}
+
+      {/* WHATSAPP-STYLE SCROLL TO BOTTOM BADGE */}
+      {showScrollArrow && (
+          <div 
+              onClick={() => {
+                  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  setUnreadScrollCount(0);
+              }}
+              style={{
+                  position: 'absolute',
+                  bottom: '90px',
+                  right: '24px',
+                  width: '42px',
+                  height: '42px',
+                  backgroundColor: '#1E293B',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                  zIndex: 40,
+                  border: '1px solid #334155',
+                  color: '#94A3B8',
+                  transition: 'all 0.2s'
+              }}
+          >
+              <ChevronDown size={24} />
+              {unreadScrollCount > 0 && (
+                  <div style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      right: '-6px',
+                      backgroundColor: '#25D366',
+                      color: '#000',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  }}>
+                      {unreadScrollCount}
+                  </div>
+              )}
+          </div>
+      )}
       
       {/* MOBILE EXIT MODAL */}
       {showExitModal && (
