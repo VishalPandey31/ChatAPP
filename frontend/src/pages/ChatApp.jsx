@@ -1132,7 +1132,6 @@ const ChatApp = () => {
             </div>
         </div>
       ), document.body)}
-      ), document.body)}
 
       {/* WHATSAPP-STYLE SCROLL TO BOTTOM BADGE */}
       {showScrollArrow && (
