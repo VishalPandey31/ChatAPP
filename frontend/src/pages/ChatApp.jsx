@@ -7,6 +7,7 @@ import { useProjectStore } from '../store/projectStore';
 import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical, Pencil, Check, CheckCheck, Clock, Lock, ChevronDown } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
+import EmojiPicker from 'emoji-picker-react';
 import { useVoiceCallStore } from '../store/voiceCallStore';
 import IncomingCallModal from '../components/voice/IncomingCallModal';
 import ActiveCallOverlay from '../components/voice/ActiveCallOverlay';
@@ -82,6 +83,7 @@ const ChatApp = () => {
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageLightbox, setShowImageLightbox] = useState(null);
   const [pendingImage, setPendingImage] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
@@ -457,6 +459,7 @@ const ChatApp = () => {
     }
     
     setReplyingTo(null);
+    setShowEmojiPicker(false);
     if (textareaRef.current) {
         textareaRef.current.value = '';
         textareaRef.current.style.height = 'auto'; 
@@ -658,7 +661,7 @@ const ChatApp = () => {
                         });
                     }
                 }
-            }} style={{ flex: 1, minHeight: 0, padding: '24px 32px 24px 32px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            }} style={{ flex: 1, minHeight: 0, padding: `24px 32px ${(showEmojiPicker || reactionMsgId) ? 400 : 24}px 32px`, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
               
               {isMoreMessagesLoading && (
                   <div style={{ textAlign: 'center', padding: '12px 0', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', color: '#94A3B8', fontSize: '13px' }}>
@@ -1027,27 +1030,41 @@ const ChatApp = () => {
               )}
 
               <div style={{ position: 'relative' }}>
-                  {reactionMsgId && (
-                      <div style={{ position: 'fixed', inset: 0, zIndex: 100000, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', animation: 'fadeIn 0.2s forwards' }}>
-                          <div style={{ backgroundColor: '#1E293B', padding: '32px 24px', borderRadius: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.5)', border: '1px solid #334155' }}>
-                              <span style={{ color: '#F8FAFC', fontSize: '16px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Type an emoji to react</span>
-                              <input 
-                                  autoFocus
-                                  type="text" 
-                                  onChange={(e) => {
-                                      const val = e.target.value.trim();
-                                      if (val.length > 0) {
-                                          socket.emit("project_message_reaction", { messageId: reactionMsgId, userId: user._id, reaction: val, projectId });
+                  {(showEmojiPicker || reactionMsgId) && (
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 100000, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)', animation: 'fadeIn 0.2s forwards' }} onClick={(e) => { if (e.target === e.currentTarget) { setShowEmojiPicker(false); setReactionMsgId(null); } }}>
+                          <style>{`
+                              .picker-gboard-style .EmojiPickerReact { border: none !important; border-radius: 20px 20px 0 0 !important; background-color: #111827 !important; }
+                              .picker-gboard-style .epr-emoji-category-label { background-color: #111827 !important; color: #94A3B8 !important; }
+                              .picker-gboard-style .epr-search { background-color: #1E293B !important; border-color: #334155 !important; color: #F8FAFC !important; }
+                          `}</style>
+                          <div className="picker-gboard-style" style={{ height: '45vh', width: '100%', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards' }} onClick={e => e.stopPropagation()}>
+                              <EmojiPicker 
+                                  theme="dark" 
+                                  width="100%" 
+                                  height="100%"
+                                  skinTonesDisabled
+                                  onEmojiClick={(e) => {
+                                      if (reactionMsgId) {
+                                          socket.emit("project_message_reaction", { messageId: reactionMsgId, userId: user._id, reaction: e.emoji, projectId });
                                           setReactionMsgId(null);
+                                      } else if (textareaRef.current) {
+                                          const start = textareaRef.current.selectionStart;
+                                          const end = textareaRef.current.selectionEnd;
+                                          const text = textareaRef.current.value;
+                                          const newText = text.substring(0, start) + e.emoji + text.substring(end);
+                                          textareaRef.current.value = newText;
+                                          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + e.emoji.length;
+                                          updateSendButtonStyles(newText);
                                       }
-                                  }}
-                                  style={{ fontSize: '40px', width: '80px', height: '80px', textAlign: 'center', backgroundColor: '#0F172A', border: '1px solid #334155', borderRadius: '16px', color: 'white', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)' }}
+                                  }} 
                               />
-                              <button onClick={() => setReactionMsgId(null)} style={{ padding: '10px 20px', color: '#94A3B8', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '15px', fontWeight: '500', marginTop: '4px' }}>Cancel</button>
                           </div>
                       </div>
                   )}
                   <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo || editingMessage || pendingImage ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
+                    <span className="icon-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)} title="Add Emoji" style={{ color: showEmojiPicker ? '#2563EB' : '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = showEmojiPicker ? '#2563EB' : '#64748B'; }}>
+                      <Smile size={20} />
+                    </span>
                     <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageSelect} style={{ display: 'none' }} />
                     <span className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Add Media" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
                       <ImageIcon size={20} />
