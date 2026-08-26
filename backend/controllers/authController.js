@@ -8,10 +8,9 @@ const generateToken = (userId, res) => {
     });
 
     res.cookie('token', token, {
-        maxAge: 30 * 24 * 60 * 60 * 1000,
         httpOnly: true,
-        sameSite: 'none', // Required for Surge to Render cross-origin
-        secure: true // Required for sameSite none
+        sameSite: 'none',
+        secure: true
     });
 
     return token;
