@@ -93,6 +93,7 @@ const ChatApp = () => {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageLightbox, setShowImageLightbox] = useState(null);
+  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [pendingImage, setPendingImage] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [editingMessage, setEditingMessage] = useState(null);
@@ -809,7 +810,7 @@ const ChatApp = () => {
                             onTouchCancel={handleBubbleTouchEnd}
                             onContextMenu={(e) => { if (isMobile) { e.preventDefault(); return; } e.preventDefault(); setActiveMenuMsgId(msg._id); }}
                             style={{ 
-                            background: isJumbo ? 'transparent' : (isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F'), 
+                            background: isJumbo ? 'transparent' : (highlightedMsgId === msg._id ? 'rgba(37, 211, 102, 0.4)' : (isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F')), 
                             color: isMine ? '#ffffff' : '#F8FAFC',
                             padding: isJumbo ? '0' : '12px 16px', 
                             borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
@@ -820,6 +821,7 @@ const ChatApp = () => {
                             fontFamily: '"Inter", sans-serif',
                             boxShadow: isJumbo ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
                             position: 'relative',
+                            transition: 'background 0.5s ease',
                             userSelect: 'none', // Prevent text selection on mobile swipe
                             width: '100%',
                             zIndex: 2
@@ -917,13 +919,23 @@ const ChatApp = () => {
                                 }
                               }
                               return (
-                              <div style={{
+                              <div onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!msg.replyTo._id) return;
+                                  const targetEl = document.getElementById(`msg-bubble-${msg.replyTo._id}`);
+                                  if (targetEl) {
+                                      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                      setHighlightedMsgId(msg.replyTo._id);
+                                      setTimeout(() => setHighlightedMsgId(null), 1500);
+                                  }
+                              }} style={{
                                 backgroundColor: isMine ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.25)',
                                 borderLeft: `3px solid ${isMine ? '#93C5FD' : '#2563EB'}`,
                                 padding: '8px 12px',
                                 borderRadius: '6px',
                                 marginBottom: '10px',
-                                fontSize: '13px'
+                                fontSize: '13px',
+                                cursor: 'pointer'
                               }}>
                                 <div style={{ fontWeight: '600', color: isMine ? '#BFDBFE' : '#60A5FA', marginBottom: '2px' }}>
                                   {replyDisplay}
