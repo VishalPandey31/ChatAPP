@@ -861,8 +861,24 @@ const ChatApp = () => {
                                       transform: 'scale(0.95)',
                                       transition: 'opacity 0.15s ease-out, transform 0.15s ease-out'
                                     }}>
-                                      <div title="React" onClick={() => { setReactionMsgId(reactionMsgId === msg._id ? null : msg._id); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Smile size={20} /> React</div>
-                                      {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo(msg); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Reply size={20} /> Reply</div>}
+                                      {/* DESKTOP QUICK REACTIONS STRIP */}
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', marginBottom: '4px', backgroundColor: '#0F172A', borderRadius: '8px', userSelect: 'none' }}>
+                                          {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                                              <div key={emoji} onClick={(e) => { 
+                                                   e.stopPropagation();
+                                                   socket.emit("project_message_reaction", { messageId: msg._id, userId: user._id, reaction: emoji, projectId });
+                                                   setActiveMenuMsgId(null);
+                                              }} style={{ fontSize: '20px', cursor: 'pointer', transform: 'scale(1)', transition: 'transform 0.1s' }} onMouseEnter={e => e.currentTarget.style.transform='scale(1.2)'} onMouseLeave={e => e.currentTarget.style.transform='scale(1)'}>
+                                                  {emoji}
+                                              </div>
+                                          ))}
+                                          <div onClick={(e) => { e.stopPropagation(); setReactionMsgId(msg._id); setActiveMenuMsgId(null); }} style={{ fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', backgroundColor: '#334155', borderRadius: '50%', cursor: 'pointer', color: '#F8FAFC' }} onMouseEnter={e => e.currentTarget.style.backgroundColor='#475569'} onMouseLeave={e => e.currentTarget.style.backgroundColor='#334155'}>
+                                              <Plus size={16} />
+                                          </div>
+                                      </div>
+
+                                      <div title="More Reactions" onClick={() => { setReactionMsgId(reactionMsgId === msg._id ? null : msg._id); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', cursor: 'pointer', borderRadius: '4px' }} onMouseEnter={e=>e.currentTarget.style.backgroundColor='#1E293B'} onMouseLeave={e=>e.currentTarget.style.backgroundColor='transparent'}><Smile size={20} /> More Reactions</div>
+                                      {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo(msg); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', cursor: 'pointer', borderRadius: '4px' }} onMouseEnter={e=>e.currentTarget.style.backgroundColor='#1E293B'} onMouseLeave={e=>e.currentTarget.style.backgroundColor='transparent'}><Reply size={20} /> Reply</div>}
                                       {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); if(textareaRef.current) { textareaRef.current.value = msg.content; textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); } setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Pencil size={20} /> Edit</div>}
                                       
                                       <div style={{ height: '1px', backgroundColor: '#243044', margin: '4px 0' }} />
@@ -1121,7 +1137,23 @@ const ChatApp = () => {
 
                    return (
                        <>
-                         <Item icon={Smile} label="React" action={() => setReactionMsgId(reactionMsgId === activeMsg._id ? null : activeMsg._id)} />
+                         {/* QUICK REACTIONS STRIP */}
+                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', marginBottom: '8px', backgroundColor: '#0F172A', borderRadius: '20px', userSelect: 'none' }}>
+                             {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                                 <div key={emoji} onClick={(e) => { 
+                                      e.stopPropagation();
+                                      socket.emit("project_message_reaction", { messageId: activeMsg._id, userId: user._id, reaction: emoji, projectId });
+                                      setActiveMenuMsgId(null);
+                                 }} style={{ fontSize: '26px', cursor: 'pointer', transform: 'scale(1)', transition: 'transform 0.1s' }} onTouchStart={e => e.currentTarget.style.transform='scale(1.2)'} onTouchEnd={e => e.currentTarget.style.transform='scale(1)'} onTouchCancel={e => e.currentTarget.style.transform='scale(1)'}>
+                                     {emoji}
+                                 </div>
+                             ))}
+                             <div onClick={(e) => { e.stopPropagation(); setReactionMsgId(activeMsg._id); setActiveMenuMsgId(null); }} style={{ fontSize: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', backgroundColor: '#334155', borderRadius: '50%', cursor: 'pointer', color: '#F8FAFC' }} onTouchStart={e => e.currentTarget.style.backgroundColor='#475569'} onTouchEnd={e => e.currentTarget.style.backgroundColor='#334155'}>
+                                 <Plus size={20} />
+                             </div>
+                         </div>
+
+                         <Item icon={Smile} label="More Reactions" action={() => setReactionMsgId(reactionMsgId === activeMsg._id ? null : activeMsg._id)} />
                          {!activeMsg.deleted && <Item icon={Reply} label="Reply" action={() => setReplyingTo(activeMsg)} />}
                          {isMine && !activeMsg.deleted && activeMsg.messageType === 'TEXT' && <Item icon={Pencil} label="Edit" action={() => { setEditingMessage(activeMsg); if(textareaRef.current) { textareaRef.current.value = activeMsg.content; textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); } }} />}
                          {!activeMsg.deleted && <Item icon={Trash2} label="Delete for me" action={() => { deleteMessageLocally(activeMsg._id); }} />}
