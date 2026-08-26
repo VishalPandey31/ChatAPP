@@ -7,7 +7,6 @@ import { useProjectStore } from '../store/projectStore';
 import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical, Pencil, Check, CheckCheck, Clock, Lock, ChevronDown } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
-import EmojiPicker from 'emoji-picker-react';
 import { useVoiceCallStore } from '../store/voiceCallStore';
 import IncomingCallModal from '../components/voice/IncomingCallModal';
 import ActiveCallOverlay from '../components/voice/ActiveCallOverlay';
@@ -83,7 +82,6 @@ const ChatApp = () => {
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageLightbox, setShowImageLightbox] = useState(null);
   const [pendingImage, setPendingImage] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
@@ -459,7 +457,6 @@ const ChatApp = () => {
     }
     
     setReplyingTo(null);
-    setShowEmojiPicker(false);
     if (textareaRef.current) {
         textareaRef.current.value = '';
         textareaRef.current.style.height = 'auto'; 
@@ -661,7 +658,7 @@ const ChatApp = () => {
                         });
                     }
                 }
-            }} style={{ flex: 1, minHeight: 0, padding: `24px 32px ${(showEmojiPicker || reactionMsgId) ? 320 : 24}px 32px`, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            }} style={{ flex: 1, minHeight: 0, padding: '24px 32px 24px 32px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
               
               {isMoreMessagesLoading && (
                   <div style={{ textAlign: 'center', padding: '12px 0', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', color: '#94A3B8', fontSize: '13px' }}>
@@ -1030,23 +1027,25 @@ const ChatApp = () => {
               )}
 
               <div style={{ position: 'relative' }}>
-                  {(showEmojiPicker || reactionMsgId) && (
-                    <div style={{ position: 'absolute', bottom: '70px', left: '0', right: '0', zIndex: 50, maxHeight: '300px', overflowY: 'auto' }}>
-                        <EmojiPicker theme="dark" width="100%" height={300} onEmojiClick={(e) => {
-                            if (reactionMsgId) {
-                                socket.emit("project_message_reaction", { messageId: reactionMsgId, userId: user._id, reaction: e.emoji, projectId });
-                                setReactionMsgId(null);
-                            } else if (textareaRef.current) {
-                                const start = textareaRef.current.selectionStart;
-                                const end = textareaRef.current.selectionEnd;
-                                const text = textareaRef.current.value;
-                                const newText = text.substring(0, start) + e.emoji + text.substring(end);
-                                textareaRef.current.value = newText;
-                                textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + e.emoji.length;
-                                updateSendButtonStyles(newText);
-                            }
-                        }} />
-                    </div>
+                  {reactionMsgId && (
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 100000, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', animation: 'fadeIn 0.2s forwards' }}>
+                          <div style={{ backgroundColor: '#1E293B', padding: '32px 24px', borderRadius: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.5)', border: '1px solid #334155' }}>
+                              <span style={{ color: '#F8FAFC', fontSize: '16px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Type an emoji to react</span>
+                              <input 
+                                  autoFocus
+                                  type="text" 
+                                  onChange={(e) => {
+                                      const val = e.target.value.trim();
+                                      if (val.length > 0) {
+                                          socket.emit("project_message_reaction", { messageId: reactionMsgId, userId: user._id, reaction: val, projectId });
+                                          setReactionMsgId(null);
+                                      }
+                                  }}
+                                  style={{ fontSize: '40px', width: '80px', height: '80px', textAlign: 'center', backgroundColor: '#0F172A', border: '1px solid #334155', borderRadius: '16px', color: 'white', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)' }}
+                              />
+                              <button onClick={() => setReactionMsgId(null)} style={{ padding: '10px 20px', color: '#94A3B8', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '15px', fontWeight: '500', marginTop: '4px' }}>Cancel</button>
+                          </div>
+                      </div>
                   )}
                   <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo || editingMessage || pendingImage ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
                     <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageSelect} style={{ display: 'none' }} />
