@@ -922,11 +922,17 @@ const ChatApp = () => {
                               <div onClick={(e) => {
                                   e.stopPropagation();
                                   if (!msg.replyTo._id) return;
-                                  const targetEl = document.getElementById(`msg-bubble-${msg.replyTo._id}`);
+                                  const targetId = `msg-bubble-${msg.replyTo._id}`;
+                                  const targetEl = document.getElementById(targetId);
                                   if (targetEl) {
-                                      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                      setHighlightedMsgId(msg.replyTo._id);
-                                      setTimeout(() => setHighlightedMsgId(null), 1500);
+                                      setTimeout(() => {
+                                          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                          setHighlightedMsgId(msg.replyTo._id);
+                                          setTimeout(() => setHighlightedMsgId(null), 1500);
+                                      }, 50);
+                                  } else {
+                                      // On WhatsApp, this fetches historical messages. For now, alert gracefully.
+                                      alert("The original message is no longer in your recent chat history view.");
                                   }
                               }} style={{
                                 backgroundColor: isMine ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.25)',
