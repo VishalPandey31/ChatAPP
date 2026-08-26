@@ -93,7 +93,6 @@ const ChatApp = () => {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageLightbox, setShowImageLightbox] = useState(null);
-  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [pendingImage, setPendingImage] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [editingMessage, setEditingMessage] = useState(null);
@@ -517,21 +516,7 @@ const ChatApp = () => {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0a0a0a', overflow: 'hidden' }}>
-      {/* Explicit Override for Jumbo Emojis to beat ServiceWorker CSS cache */}
-      <style>{`
-          .chat-bubble[data-isjumbo="true"] {
-              font-size: 56px !important;
-              line-height: 1.2 !important;
-              padding: 0 !important;
-              background: transparent !important;
-              border: none !important;
-              box-shadow: none !important;
-          }
-      `}</style>
-      
-      {/* Voice Call Overlay & Ringing Modals */}
-      <div className="mobile-chat-wrapper" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
+    <div className="mobile-chat-wrapper" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
       {/* Left Sidebar removed for full screen mode */}
 
       {/* FULL SCREEN CHAT AREA */}
@@ -817,25 +802,24 @@ const ChatApp = () => {
                             <Reply size={14} style={{ transform: isMine ? 'scaleX(-1)' : 'none' }} />
                           </div>
 
-                          <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} data-isjumbo={Boolean(isJumbo)} className="chat-bubble relative group" 
+                          <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} className="chat-bubble relative group" 
                             onTouchStart={(e) => { handleTouchStart(e); handleBubbleTouchStart(e); }}
                             onTouchMove={(e) => { handleTouchMove(e); handleBubbleTouchEnd(e); }}
                             onTouchEnd={(e) => { handleTouchEnd(e, msg); handleBubbleTouchEnd(e); }}
                             onTouchCancel={handleBubbleTouchEnd}
                             onContextMenu={(e) => { if (isMobile) { e.preventDefault(); return; } e.preventDefault(); setActiveMenuMsgId(msg._id); }}
                             style={{ 
-                            background: isJumbo ? 'transparent' : (highlightedMsgId === msg._id ? 'rgba(37, 211, 102, 0.4)' : (isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F')), 
+                            background: isJumbo ? 'transparent' : (isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F'), 
                             color: isMine ? '#ffffff' : '#F8FAFC',
-                            padding: isJumbo ? '0' : (isMobile ? '10px 14px' : '12px 16px'), 
+                            padding: isJumbo ? '0' : '12px 16px', 
                             borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                             border: isJumbo ? 'none' : (isMine ? 'none' : '1px solid #243044'),
                             wordBreak: 'break-word',
                             lineHeight: isJumbo ? '1.2' : '1.5',
-                            fontSize: isJumbo ? '56px' : (isMobile ? '14px' : '15px'),
+                            fontSize: isJumbo ? '56px' : '15px',
                             fontFamily: '"Inter", sans-serif',
                             boxShadow: isJumbo ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
                             position: 'relative',
-                            transition: 'background 0.5s ease',
                             userSelect: 'none', // Prevent text selection on mobile swipe
                             width: '100%',
                             zIndex: 2
@@ -933,29 +917,28 @@ const ChatApp = () => {
                                 }
                               }
                               return (
-                              <div onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (!msg.replyTo._id) return;
-                                  const targetId = `msg-bubble-${msg.replyTo._id}`;
-                                  const targetEl = document.getElementById(targetId);
-                                  if (targetEl) {
-                                      setTimeout(() => {
-                                          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                          setHighlightedMsgId(msg.replyTo._id);
-                                          setTimeout(() => setHighlightedMsgId(null), 1500);
-                                      }, 50);
-                                  } else {
-                                      // On WhatsApp, this fetches historical messages. For now, alert gracefully.
-                                      alert("The original message is no longer in your recent chat history view.");
+                              <div 
+                                onClick={() => {
+                                  const targetId = typeof msg.replyTo === 'object' ? msg.replyTo._id : msg.replyTo;
+                                  const element = document.getElementById(`msg-bubble-${targetId}`);
+                                  if (element) {
+                                      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                      element.classList.remove('highlight-flash');
+                                      void element.offsetWidth; // trigger reflow
+                                      element.classList.add('highlight-flash');
                                   }
-                              }} style={{
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.backgroundColor = isMine ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.35)'}
+                                onMouseLeave={e => e.currentTarget.style.backgroundColor = isMine ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.25)'}
+                                style={{
                                 backgroundColor: isMine ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.25)',
                                 borderLeft: `3px solid ${isMine ? '#93C5FD' : '#2563EB'}`,
                                 padding: '8px 12px',
                                 borderRadius: '6px',
                                 marginBottom: '10px',
                                 fontSize: '13px',
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                transition: 'background-color 0.2s',
                               }}>
                                 <div style={{ fontWeight: '600', color: isMine ? '#BFDBFE' : '#60A5FA', marginBottom: '2px' }}>
                                   {replyDisplay}
