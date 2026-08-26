@@ -622,16 +622,16 @@ const ChatApp = () => {
             {/* Messages */}
             <div className="chat-messages" onScroll={(e) => {
                 if (activeMenuMsgId) setActiveMenuMsgId(null);
-                if (e.target.scrollTop === 0) {
+                if (e.target.scrollTop < 50) {
                     const store = useChatStore.getState();
-                    if (!store.isMessagesLoading) {
-                        // Remember scroll height to prevent jumping
+                    if (!store.isMessagesLoading && !store.isMoreMessagesLoading) {
                         const scrollContainer = e.target;
                         const previousScrollHeight = scrollContainer.scrollHeight;
-                        store.loadMoreProjectMessages(projectId).then(() => {
-                            requestAnimationFrame(() => {
-                                scrollContainer.scrollTop = scrollContainer.scrollHeight - previousScrollHeight;
-                            });
+                        useChatStore.setState({ isMoreMessagesLoading: true }); // Prevent immediate refires
+                        store.loadMoreProjectMessages(projectId).finally(() => {
+                            setTimeout(() => {
+                                scrollContainer.scrollTop = Math.max(50, scrollContainer.scrollHeight - previousScrollHeight);
+                            }, 50);
                         });
                     }
                 }

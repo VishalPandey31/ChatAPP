@@ -173,6 +173,7 @@ export const useChatStore = create(
             pendingMessages: [],
             isChatsLoading: false,
             isMessagesLoading: false,
+            isMoreMessagesLoading: false,
             activeChat: null,
             currentProjectId: null,
             activeRecipientId: null, // E2EE: who we are chatting with (the OTHER user's ID)
@@ -302,11 +303,13 @@ export const useChatStore = create(
                         const newMessages = [...decryptedMessages, ...existingMsgs];
                         return {
                             messages: state.currentProjectId === projectId ? newMessages : state.messages,
-                            messagesCache: { ...state.messagesCache, [projectId]: newMessages }
+                            messagesCache: { ...state.messagesCache, [projectId]: newMessages },
+                            isMoreMessagesLoading: false
                         };
                     });
                 } catch (err) {
                     console.error("[Pagination]", err);
+                    set({ isMoreMessagesLoading: false });
                 }
             },
 
