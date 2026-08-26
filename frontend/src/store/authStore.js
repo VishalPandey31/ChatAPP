@@ -77,11 +77,10 @@ export const useAuthStore = create((set, get) => ({
             set({ user: data });
             get().connectSocket();
 
-            // Generate and upload E2EE keys after login
-            const keys = await get()._initE2EEKeys();
-            if (keys) {
-                await get()._uploadPublicKey(keys.publicKeyJwk);
-            }
+            // Non-blocking: fire E2EE key init in background so login navigation is instant
+            get()._initE2EEKeys().then(keys => {
+                if (keys) get()._uploadPublicKey(keys.publicKeyJwk);
+            });
 
             return true;
         } catch (err) {
@@ -103,11 +102,10 @@ export const useAuthStore = create((set, get) => ({
             set({ user: data });
             get().connectSocket();
 
-            // Generate and upload E2EE keys after registration
-            const keys = await get()._initE2EEKeys();
-            if (keys) {
-                await get()._uploadPublicKey(keys.publicKeyJwk);
-            }
+            // Non-blocking: fire E2EE key init in background so registration navigation is instant
+            get()._initE2EEKeys().then(keys => {
+                if (keys) get()._uploadPublicKey(keys.publicKeyJwk);
+            });
 
             return true;
         } catch (err) {
@@ -126,6 +124,7 @@ export const useAuthStore = create((set, get) => ({
             if (socket) socket.disconnect();
             set({ user: null, socket: null, onlineUsers: [], myPrivateKey: null, myPublicKeyJwk: null });
             Cookies.remove('token');
+            localStorage.removeItem('chatapp-offline-cache'); // Force clear persistent cache on logout
             // Note: we intentionally keep the private key in localStorage for session resumption
             // but it regenerates each login anyway (ephemeral design)
 

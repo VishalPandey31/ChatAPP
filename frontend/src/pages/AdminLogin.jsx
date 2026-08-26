@@ -18,6 +18,8 @@ const AdminLogin = () => {
     setError('');
     try {
       await login({ email, password }, true);
+      // Prefetch projects while navigating so dashboard loads instantly
+      import('../store/projectStore').then(m => m.useProjectStore.getState().fetchProjects());
       navigate('/projects');
     } catch (err) {
       setError(err.message || 'Admin login failed. Please check credentials.');
