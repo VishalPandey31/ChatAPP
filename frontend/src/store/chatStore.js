@@ -23,6 +23,40 @@ export const clearUserEncryptionCache = (userId) => {
 };
 
 /**
+ * Eagerly imports a recipient's public key and caches the derived shared secret.
+ * This completely eliminates network waterfalls when rendering a chat for the first time.
+ */
+export const preloadPublicKey = async (recipientId, pubKeyJwk) => {
+    if (!recipientId || !pubKeyJwk) return;
+    if (sharedSecretCache.has(recipientId) || sharedSecretPromiseCache.has(recipientId)) return;
+
+    // Safety fallback: wait for key init if not ready
+    let myPrivateKey = useAuthStore.getState().myPrivateKey;
+    if (!myPrivateKey) {
+        try {
+            const keys = await useAuthStore.getState()._initE2EEKeys();
+            if (keys) myPrivateKey = keys.privateKey;
+        } catch (e) { return; }
+    }
+    if (!myPrivateKey) return;
+
+    try {
+        const fetchPromise = (async () => {
+            const recipientPublicKey = await importPublicKey(pubKeyJwk);
+            const sharedKey = await deriveSharedSecret(myPrivateKey, recipientPublicKey);
+            sharedSecretCache.set(recipientId, sharedKey);
+            return sharedKey;
+        })();
+        sharedSecretPromiseCache.set(recipientId, fetchPromise);
+        await fetchPromise;
+    } catch (err) {
+        console.warn('[E2EE] Background pre-warm failed for', recipientId);
+    } finally {
+        sharedSecretPromiseCache.delete(recipientId);
+    }
+};
+
+/**
  * Fetch the recipient's public key from backend and derive a shared AES-GCM secret.
  * Returns the CryptoKey or null if E2EE is unavailable.
  */

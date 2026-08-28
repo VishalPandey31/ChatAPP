@@ -14,8 +14,8 @@ export const createProject = async (req, res) => {
 
         await project.save();
 
-        await project.populate('admin', 'name email profilePicture lastSeen');
-        await project.populate('collaborators', 'name email accountStatus approvalStatus lastSeen profilePicture');
+        await project.populate('admin', 'name email profilePicture lastSeen publicKey');
+        await project.populate('collaborators', 'name email accountStatus approvalStatus lastSeen profilePicture publicKey');
 
         res.status(201).json(project);
     } catch (error) {
@@ -27,8 +27,8 @@ export const createProject = async (req, res) => {
 export const getProjects = async (req, res) => {
     try {
         const projects = await Project.find()
-            .populate('admin', 'email name profilePicture lastSeen role')
-            .populate('collaborators', 'email name profilePicture lastSeen role');
+            .populate('admin', 'email name profilePicture lastSeen role publicKey')
+            .populate('collaborators', 'email name profilePicture lastSeen role publicKey');
 
         res.status(200).json(projects);
     } catch (error) {
