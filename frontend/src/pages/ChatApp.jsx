@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useProjectStore } from '../store/projectStore';
-import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical, Pencil, Check, CheckCheck, Clock, Lock, ChevronDown } from 'lucide-react';
+import { Search, BarChart3, Settings, Smile, Image as ImageIcon, Send as SendIcon, MessageSquare, UserCircle, Plus, Trash2, X, Reply, MoreVertical, Pencil, Check, CheckCheck, Clock, Lock, ChevronDown, RefreshCcw } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
 import EmojiPicker from 'emoji-picker-react';
@@ -74,7 +74,7 @@ const formatLastSeen = (dateInput) => {
 
 const ChatApp = () => {
   const { user, logout, socket, onlineUsers, lastSeenMap } = useAuthStore();
-  const { messages, isMessagesLoading, isMoreMessagesLoading, getProjectMessages, syncMissedMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, setActiveRecipientId } = useChatStore();
+  const { messages, isMessagesLoading, isMoreMessagesLoading, getProjectMessages, syncMissedMessages, sendProjectMessage, addMessage, clearProjectChat, clearMessagesLocally, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, setActiveRecipientId, recoverMessagesAction } = useChatStore();
   const initVoiceListeners = useVoiceCallStore(s => s.initListeners);
   const removeVoiceListeners = useVoiceCallStore(s => s.removeListeners);
   const { projects, fetchProjects } = useProjectStore();
@@ -105,6 +105,20 @@ const ChatApp = () => {
   const typingTimeoutRef = useRef(null);
   const textareaRef = useRef(null);
   
+  const [recoveryState, setRecoveryState] = useState(null);
+
+  const handleRecoverMessages = async () => {
+      try {
+          setRecoveryState('Recovering recent messages...');
+          const count = await recoverMessagesAction(projectId, 100);
+          setRecoveryState(count > 0 ? `Chat synchronized — ${count} messages recovered` : 'No missing messages found');
+          setTimeout(() => setRecoveryState(null), 3000);
+      } catch (err) {
+          setRecoveryState('Failed to recover messages');
+          setTimeout(() => setRecoveryState(null), 3000);
+      }
+  };
+
   const currentProject = projects.find(p => p._id === projectId);
 
   const [permission, setPermission] = useState(window.Notification?.permission);
@@ -444,7 +458,7 @@ const ChatApp = () => {
     
     if (currentMessage.trim()) {
         if (editingMessage && !pendingImage) {
-            socket.emit("edit_project_message", { messageId: editingMessage._id, senderId: user._id, newContent: currentMessage, projectId });
+            useChatStore.getState().editProjectMessage(editingMessage._id, projectId, currentMessage);
             setEditingMessage(null);
         } else {
             // Delay text slightly if sending with image to preserve visual order
@@ -508,11 +522,11 @@ const ChatApp = () => {
   }
 
   return (
-    <div className="mobile-chat-wrapper" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
+    <div className="mobile-chat-wrapper" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)', overflowX: 'hidden', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
       {/* Left Sidebar removed for full screen mode */}
 
       {/* FULL SCREEN CHAT AREA */}
-      <div className="chat-main-area" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#0B1120', overflow: 'hidden' }}>
+      <div className="chat-main-area" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#0B1120', overflow: 'hidden', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
         
         {/* Chat Header */}
         <div className="chat-header" style={{ flexShrink: 0, position: 'relative', zIndex: 50, padding: '16px 24px', borderBottom: '1px solid #243044', backgroundColor: '#0B1120', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -579,10 +593,16 @@ const ChatApp = () => {
                     </div>
                     
                     {user?.role === 'ADMIN' && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#10B981', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { setShowTeamModal(true); setShowMobileMenu(false); }}>
-                        <Plus size={18} />
-                        <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>New/Add</span>
-                      </div>
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#10B981', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { setShowTeamModal(true); setShowMobileMenu(false); }}>
+                          <Plus size={18} />
+                          <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>New/Add</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#8B5CF6', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { handleRecoverMessages(); setShowMobileMenu(false); }}>
+                          <RefreshCcw size={18} />
+                          <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Recover Missing Messages</span>
+                        </div>
+                      </>
                     )}
                     
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#EF4444', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { handleClearChat(); setShowMobileMenu(false); }}>
@@ -611,9 +631,14 @@ const ChatApp = () => {
                 <Settings size={18} />
               </span>
               {user?.role === 'ADMIN' && (
-                <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#10B981' }} onClick={() => setShowTeamModal(true)} title="Manage Team" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                  <Plus size={18} />
-                </span>
+                <>
+                  <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#10B981' }} onClick={() => setShowTeamModal(true)} title="Manage Team" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                    <Plus size={18} />
+                  </span>
+                  <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#8B5CF6' }} onClick={handleRecoverMessages} title="Recover Recent Messages" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(139, 92, 246, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                    <RefreshCcw size={18} />
+                  </span>
+                </>
               )}
               <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#EF4444' }} onClick={handleClearChat} title="Clear Chat" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
                 <Trash2 size={18} />
@@ -629,6 +654,12 @@ const ChatApp = () => {
           <div style={{ padding: '12px 16px', backgroundColor: 'rgba(37, 211, 102, 0.1)', color: '#25D366', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, borderBottom: '1px solid #1e293b' }}>
             <span style={{ fontSize: '13px', flex: 1, marginRight: '12px' }}>Enable notifications to receive new encrypted messages even when the app is closed.</span>
             <button onClick={handleEnablePush} style={{ backgroundColor: '#25D366', color: '#000', padding: '6px 12px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flexShrink: 0 }}>Enable</button>
+          </div>
+        )}
+
+        {recoveryState && (
+          <div style={{ padding: '8px 16px', backgroundColor: '#4C1D95', color: '#DDD6FE', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0, borderBottom: '1px solid #1e293b', fontSize: '13px', fontWeight: '500', animation: 'fadeIn 0.2s' }}>
+            {recoveryState}
           </div>
         )}
 
@@ -661,7 +692,7 @@ const ChatApp = () => {
                         });
                     }
                 }
-            }} style={{ flex: 1, minHeight: 0, padding: `24px 32px ${(showEmojiPicker || reactionMsgId) ? 400 : 24}px 32px`, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            }} style={{ flex: 1, minHeight: 0, padding: `24px 32px ${(showEmojiPicker || reactionMsgId) ? 400 : 24}px 32px`, overflowY: 'auto', overflowX: 'hidden', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', WebkitOverflowScrolling: 'touch' }}>
               
               {isMoreMessagesLoading && (
                   <div style={{ textAlign: 'center', padding: '12px 0', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', color: '#94A3B8', fontSize: '13px' }}>
@@ -761,8 +792,8 @@ const ChatApp = () => {
                   };
 
                   return (
-                    <div key={index} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '65%' }}>
+                    <div key={index} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: '20px', width: '100%', maxWidth: '100%', overflowX: 'hidden', boxSizing: 'border-box' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '85%', minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
                           {!isMine && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2563EB' }} />}
                           <span style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
@@ -811,6 +842,11 @@ const ChatApp = () => {
                             borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                             border: isMine ? 'none' : '1px solid #243044',
                             wordBreak: 'break-word',
+                            overflowWrap: 'anywhere',
+                            whiteSpace: 'pre-wrap',
+                            minWidth: 0,
+                            maxWidth: '100%',
+                            boxSizing: 'border-box',
                             lineHeight: '1.5',
                             fontSize: '15px', 
                             fontFamily: '"Inter", sans-serif',
@@ -819,6 +855,7 @@ const ChatApp = () => {
                             zIndex: 2
                           }}>
                             {/* Hover Actions Menu Desktop/Mobile */}
+                            {!isMobile && (
                             <div 
                               style={{
                                 position: 'absolute',
@@ -838,6 +875,7 @@ const ChatApp = () => {
                                 {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Pencil size={14} /></div>}
                                 {isMine && !msg.deleted && <div title="Delete" onClick={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Trash2 size={14} /></div>}
                             </div>
+                            )}
                             
                             {/* Desktop Context Menu */}
                             {activeMenuMsgId === msg._id && !isMobile && (

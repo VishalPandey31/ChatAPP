@@ -286,7 +286,17 @@ export const useChatStore = create(
                 const cached = get().messagesCache[projectId];
 
                 // Self-healing: Detect permanently corrupted string in cache (e.g. from previous race conditions)
-                const isCorrupted = cached && cached.some(m => m.encryptionVersion === 1 && m.content && m.content.includes('key not yet available'));
+                const isCorrupted = cached && cached.some(m => m.encryptionVersion === 1 && m.content && (m.content.includes('key not yet available') || m.content.includes('Message decryption failed')));
+
+                // Scrub hanging SENDING states caused by page reloads dropping the pending queue.
+                const pendingQueue = get().pendingMessages || [];
+                if (cached) {
+                    cached.forEach(m => {
+                        if (m.status === 'SENDING' && !pendingQueue.some(p => p.payload.clientMessageId === m.clientMessageId)) {
+                            m.status = 'FAILED';
+                        }
+                    });
+                }
 
                 if (cached && !force && !isCorrupted) {
                     set({ isMessagesLoading: false, currentProjectId: projectId, messages: cached });
@@ -393,18 +403,9 @@ export const useChatStore = create(
             },
 
             syncMissedMessages: async (projectId) => {
-                const cached = get().messagesCache[projectId] || (get().currentProjectId === projectId ? get().messages : []);
-                if (!cached || cached.length === 0) return;
-
-                let latestDate = cached[0].createdAt;
-                for (let m of cached) {
-                    if (new Date(m.createdAt) > new Date(latestDate)) {
-                        latestDate = m.createdAt;
-                    }
-                }
-
                 try {
-                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}?after=${latestDate}`, { credentials: 'include' });
+                    // Fetch the absolute newest 50 messages strictly to resolve any missing middle gaps
+                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}?limit=50`, { credentials: 'include' });
                     if (!res.ok) return;
                     const data = await res.json();
                     if (!data || data.length === 0) return;
@@ -437,6 +438,17 @@ export const useChatStore = create(
                                 newMessages[newMessages.indexOf(existsClient)] = dec;
                             } else if (!existsId) {
                                 newMessages.push(dec);
+                            } else {
+                                // Overwrite existing cache aggressively to enforce correctness of status/edited states in the gap
+                                newMessages[newMessages.indexOf(existsId)] = { ...existsId, ...dec };
+                            }
+                        });
+
+                        // Post-sync scrub: fail any SENDING messages not actively queued
+                        const pendingQ = state.pendingMessages || [];
+                        newMessages.forEach(m => {
+                            if (m.status === 'SENDING' && !pendingQ.some(p => p.payload.clientMessageId === m.clientMessageId)) {
+                                m.status = 'FAILED';
                             }
                         });
 
@@ -449,6 +461,59 @@ export const useChatStore = create(
                     });
                 } catch (err) {
                     console.error("[E2EE] Sync failed", err);
+                }
+            },
+
+            recoverMessagesAction: async (projectId, limit = 100) => {
+                try {
+                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}/recover?limit=${limit}`, { credentials: 'include' });
+                    if (!res.ok) throw new Error("Recovery forbidden or failed.");
+                    const data = await res.json();
+                    if (!data || data.length === 0) return 0;
+
+                    let { activeRecipientId } = get();
+                    if (!activeRecipientId) {
+                        const myId = useAuthStore.getState().user?._id?.toString();
+                        const otherMsg = data.find(m => {
+                            const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
+                            return sId && sId !== myId;
+                        });
+                        if (otherMsg) activeRecipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                    }
+
+                    const decryptedMessages = await Promise.all(
+                        data.map(msg => decryptSingleMessage(msg, activeRecipientId))
+                    );
+
+                    return new Promise((resolve) => {
+                        set(state => {
+                            const currentMsgs = state.messagesCache[projectId] || (state.currentProjectId === projectId ? state.messages : []);
+                            let newMessages = [...currentMsgs];
+                            let recoveredCount = 0;
+
+                            decryptedMessages.forEach(dec => {
+                                const existsId = newMessages.find(m => m._id === dec._id);
+                                if (!existsId) {
+                                    newMessages.push(dec);
+                                    recoveredCount++;
+                                }
+                            });
+
+                            if (recoveredCount > 0) {
+                                newMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                            }
+
+                            resolve(recoveredCount);
+
+                            return {
+                                messages: state.currentProjectId === projectId ? newMessages : state.messages,
+                                messagesCache: { ...state.messagesCache, [projectId]: newMessages }
+                            };
+                        });
+                    });
+                } catch (err) {
+                    console.error("[Recovery] Failed to recover messages", err);
+                    throw err;
                 }
             },
 
@@ -516,61 +581,23 @@ export const useChatStore = create(
                 const clientMessageId = `msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
                 const currentUser = useAuthStore.getState().user;
 
-                let finalContent = content;
-                let iv = null;
-                let encryptionVersion = 0;
-
-                // Only encrypt TEXT messages (never images, call records, etc.)
-                if (messageType === 'TEXT' && content && typeof content === 'string') {
-                    const { activeRecipientId } = get();
-                    if (activeRecipientId) {
-                        try {
-                            const sharedKey = await getSharedSecret(activeRecipientId);
-                            if (sharedKey) {
-                                const encrypted = await encryptMessage(content, sharedKey);
-                                finalContent = encrypted.ciphertext;
-                                iv = encrypted.iv;
-                                encryptionVersion = 1;
-                            }
-                            // If no sharedKey, falls through as plaintext (key not yet uploaded)
-                        } catch (err) {
-                            console.warn('[E2EE] Encryption failed, sending as plaintext:', err);
-                            // Graceful degradation: send as plaintext
-                            finalContent = content;
-                            iv = null;
-                            encryptionVersion = 0;
-                        }
-                    }
-                }
-
-                const payload = {
-                    senderId: currentUser._id,
-                    projectId,
-                    content: finalContent,
-                    iv,
-                    encryptionVersion,
-                    messageType,
-                    clientMessageId
-                };
-                if (replyToId) payload.replyTo = replyToId;
-
-                // Optimistic UI Update — always show PLAINTEXT to the sender immediately
+                // 1. Instantly construct and push Optimistic UI WITHOUT waiting for encryption
                 const optimisticMsg = {
                     _id: clientMessageId,
                     clientMessageId,
                     sender: currentUser,
                     projectId,
-                    content,            // always show original plaintext in optimistic update
-                    iv: null,           // DO NOT LEAK the IV into state, since content is plaintext
-                    encryptionVersion: 0, // DO NOT LEAK the encryptionVersion into state, since content is plaintext
+                    content,
+                    iv: null,
+                    encryptionVersion: 0,
                     messageType,
                     status: 'SENDING',
                     createdAt: new Date().toISOString()
                 };
+
                 if (replyToId) {
                     const replyMsg = get().messages.find(m => (m._id?.toString?.() || m._id) === (replyToId?.toString?.() || replyToId));
                     if (replyMsg) {
-                        // Store a UI-safe snapshot: guaranteed decrypted plaintext content
                         optimisticMsg.replyTo = {
                             id: replyMsg._id || replyMsg.id,
                             senderId: typeof replyMsg.sender === 'object' ? (replyMsg.sender._id || replyMsg.sender.id) : replyMsg.sender,
@@ -580,45 +607,115 @@ export const useChatStore = create(
                     }
                 }
 
+                // Inject synchronously to the UI cache so rendering is literally zero latency
                 set(state => {
                     const newMessages = [...state.messages, optimisticMsg];
-
-                    // Queue pending if deduplicated
-                    const newPending = [...(state.pendingMessages || [])];
-                    if (!newPending.some(p => p.payload.clientMessageId === clientMessageId)) {
-                        newPending.push({ payload, optimisticMsg });
-                    }
-
                     return {
                         messages: newMessages,
-                        messagesCache: { ...state.messagesCache, [projectId]: newMessages },
-                        pendingMessages: newPending
+                        messagesCache: { ...state.messagesCache, [projectId]: newMessages }
                     };
                 });
 
-                // Smart emission with zombie socket timeout
-                if (!socket.connected) {
-                    console.warn('[Lifecycle] Socket disconnected naturally, queued pending msg and forcing network connect');
-                    socket.connect();
-                    return;
+                // 2. Process Crypto and Network payload asynchronously
+                (async () => {
+                    let finalContent = content;
+                    let iv = null;
+                    let encryptionVersion = 0;
+
+                    if (messageType === 'TEXT' && content && typeof content === 'string') {
+                        const { activeRecipientId } = get();
+                        if (activeRecipientId) {
+                            try {
+                                const sharedKey = await getSharedSecret(activeRecipientId);
+                                if (sharedKey) {
+                                    const encrypted = await encryptMessage(content, sharedKey);
+                                    finalContent = encrypted.ciphertext;
+                                    iv = encrypted.iv;
+                                    encryptionVersion = 1;
+                                }
+                            } catch (err) {
+                                console.warn('[E2EE] Encryption failed, sending as plaintext:', err);
+                            }
+                        }
+                    }
+
+                    const payload = {
+                        senderId: currentUser._id,
+                        projectId,
+                        content: finalContent,
+                        iv,
+                        encryptionVersion,
+                        messageType,
+                        clientMessageId
+                    };
+                    if (replyToId) payload.replyTo = replyToId;
+
+                    // Safely queue the background emission
+                    set(state => {
+                        const newPending = [...(state.pendingMessages || [])];
+                        if (!newPending.some(p => p.payload.clientMessageId === clientMessageId)) {
+                            newPending.push({ payload, optimisticMsg });
+                        }
+                        return { pendingMessages: newPending };
+                    });
+
+                    // Smart emission with zombie socket timeout
+                    if (!socket.connected) {
+                        console.warn('[Lifecycle] Socket disconnected naturally, queued pending msg and forcing network connect');
+                        socket.connect();
+                        return;
+                    }
+                    socket.timeout(5000).emit("send_project_message", payload, (err, response) => {
+                        if (err) {
+                            console.warn("[Lifecycle] Zombie socket detected on emit timeout. Enforcing reconnect.", err);
+                            // Payload already stored in pendingMessages, forcefully recycle connection
+                            socket.disconnect();
+                            socket.connect();
+                        } else if (response && response.status === 'ok') {
+                            // Wipe from pending list and transition SENDING -> SENT
+                            set(state => {
+                                const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                                const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'SENT' } : m);
+                                const newCache = { ...state.messagesCache };
+                                newCache[projectId] = newMsgs;
+                                return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                            });
+                        }
+                    });
+                })();
+            },
+
+            editProjectMessage: async (messageId, projectId, newContent) => {
+                const socket = useAuthStore.getState().socket;
+                if (!socket) return;
+                const currentUser = useAuthStore.getState().user;
+
+                let finalContent = newContent;
+                let newIv = null;
+                let encryptionVersion = 0;
+
+                const { activeRecipientId } = get();
+                if (activeRecipientId) {
+                    try {
+                        const sharedKey = await getSharedSecret(activeRecipientId);
+                        if (sharedKey) {
+                            const encrypted = await encryptMessage(newContent, sharedKey);
+                            finalContent = encrypted.ciphertext;
+                            newIv = encrypted.iv;
+                            encryptionVersion = 1;
+                        }
+                    } catch (err) {
+                        console.warn('[E2EE] Edit encryption failed', err);
+                    }
                 }
 
-                socket.timeout(5000).emit("send_project_message", payload, (err, response) => {
-                    if (err) {
-                        console.warn("[Lifecycle] Zombie socket detected on emit timeout. Enforcing reconnect.", err);
-                        // Payload already stored in pendingMessages, forcefully recycle connection
-                        socket.disconnect();
-                        socket.connect();
-                    } else if (response && response.status === 'ok') {
-                        // Wipe from pending list and transition SENDING -> SENT
-                        set(state => {
-                            const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
-                            const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'SENT' } : m);
-                            const newCache = { ...state.messagesCache };
-                            newCache[projectId] = newMsgs;
-                            return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
-                        });
-                    }
+                socket.emit("edit_project_message", {
+                    messageId,
+                    senderId: currentUser._id,
+                    newContent: finalContent,
+                    newIv,
+                    encryptionVersion,
+                    projectId
                 });
             },
 

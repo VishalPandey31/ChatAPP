@@ -315,10 +315,12 @@ export const socketHandler = (io) => {
         // Project Message Edit
         socket.on("edit_project_message", async (data) => {
             try {
-                const { messageId, senderId, newContent, projectId } = data;
+                const { messageId, senderId, newContent, newIv, encryptionVersion, projectId } = data;
                 const msg = await Message.findById(messageId);
                 if (msg && msg.sender.toString() === senderId && !msg.deleted) {
                     msg.content = newContent;
+                    if (newIv !== undefined) msg.iv = newIv;
+                    if (encryptionVersion !== undefined) msg.encryptionVersion = encryptionVersion;
                     msg.edited = true;
                     msg.editedAt = new Date();
                     await msg.save();

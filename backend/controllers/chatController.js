@@ -77,3 +77,28 @@ export const clearProjectChat = async (req, res) => {
         res.status(500).json({ message: 'Error clearing project messages' });
     }
 };
+
+export const recoverRecentMessages = async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const validLimits = [50, 100, 250, 500];
+        let limit = parseInt(req.query.limit);
+        if (!validLimits.includes(limit)) limit = 100;
+
+        const messages = await Message.find({ projectId })
+            .select('sender content iv encryptionVersion messageType replyTo clientMessageId edited deleted reactions status createdAt callMeta')
+            .populate('sender', 'name email profilePicture')
+            .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } })
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .lean();
+
+        // Reverse so oldest first for frontend rendering
+        messages.reverse();
+
+        res.status(200).json(messages);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error recovering project messages' });
+    }
+};

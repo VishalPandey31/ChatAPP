@@ -191,7 +191,9 @@ button:focus {
 
   /* Chat App Shrink */
   .chat-main-area {
-    width: 100vw;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
   }
 
   /* Header Area */
