@@ -71,7 +71,15 @@ async function getSharedSecret(recipientId) {
         return sharedSecretPromiseCache.get(recipientId);
     }
 
-    const myPrivateKey = useAuthStore.getState().myPrivateKey;
+    let myPrivateKey = useAuthStore.getState().myPrivateKey;
+    if (!myPrivateKey) {
+        try {
+            const keys = await useAuthStore.getState()._initE2EEKeys();
+            if (keys) myPrivateKey = keys.privateKey;
+        } catch (e) {
+            console.warn('[E2EE] Key init failed', e);
+        }
+    }
     if (!myPrivateKey) return null;
 
     const fetchPromise = (async () => {
@@ -153,19 +161,30 @@ async function decryptSingleMessage(msg, activeRecipientId) {
 
         const sharedKey = await getSharedSecret(recipientId);
         if (!sharedKey) {
-            if (outerNeedsDecryption) decryptedMsg.content = '🔒 E2EE message (key not yet available)';
-            if (innerNeedsDecryption) decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: '🔒 E2EE message (key not yet available)' };
+            if (outerNeedsDecryption) {
+                decryptedMsg.originalCiphertext = msg.originalCiphertext || msg.content;
+                decryptedMsg.content = '🔒 E2EE message (key not yet available)';
+            }
+            if (innerNeedsDecryption) {
+                decryptedMsg.replyTo = {
+                    ...decryptedMsg.replyTo,
+                    originalCiphertext: msg.replyTo.originalCiphertext || msg.replyTo.content,
+                    content: '🔒 E2EE message (key not yet available)'
+                };
+            }
             return decryptedMsg;
         }
 
         // Decrypt outer message if needed
         if (outerNeedsDecryption) {
             try {
-                decryptedMsg.content = await decryptMessage(msg.content, msg.iv, sharedKey);
+                const targetCipher = msg.originalCiphertext || msg.content;
+                decryptedMsg.content = await decryptMessage(targetCipher, msg.iv, sharedKey);
                 // CRITICAL: Clear encryption flags after successful decryption to prevent
                 // double-decryption on re-processing (optimistic replacement, updateMessage, etc.)
                 decryptedMsg.encryptionVersion = 0;
                 decryptedMsg.iv = null;
+                delete decryptedMsg.originalCiphertext;
             } catch (err) {
                 console.warn('[E2EE] Outer message decryption failed', msg._id, err.message);
                 decryptedMsg.content = '⚠️ Message decryption failed';
@@ -177,7 +196,8 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         // Decrypt inner reply if needed
         if (innerNeedsDecryption) {
             try {
-                const replyPlaintext = await decryptMessage(decryptedMsg.replyTo.content, decryptedMsg.replyTo.iv, sharedKey);
+                const targetCipher = decryptedMsg.replyTo.originalCiphertext || decryptedMsg.replyTo.content;
+                const replyPlaintext = await decryptMessage(targetCipher, decryptedMsg.replyTo.iv, sharedKey);
                 decryptedMsg.replyTo = {
                     id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
                     senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
@@ -265,7 +285,10 @@ export const useChatStore = create(
             getProjectMessages: async (projectId, force = false) => {
                 const cached = get().messagesCache[projectId];
 
-                if (cached && !force) {
+                // Self-healing: Detect permanently corrupted string in cache (e.g. from previous race conditions)
+                const isCorrupted = cached && cached.some(m => m.encryptionVersion === 1 && m.content && m.content.includes('key not yet available'));
+
+                if (cached && !force && !isCorrupted) {
                     set({ isMessagesLoading: false, currentProjectId: projectId, messages: cached });
                     // Seamlessly fetch any missing messages in the background
                     get().syncMissedMessages(projectId);
@@ -273,7 +296,7 @@ export const useChatStore = create(
                 }
 
                 // Show persisted cache instantly if available, skip loading spinner
-                const persistedCache = get().messagesCache[projectId];
+                const persistedCache = isCorrupted ? null : get().messagesCache[projectId];
                 set({
                     isMessagesLoading: !persistedCache || persistedCache.length === 0,
                     currentProjectId: projectId,

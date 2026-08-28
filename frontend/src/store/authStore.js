@@ -13,6 +13,8 @@ import {
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 const PRIVATE_KEY_STORAGE_KEY = 'e2ee_private_key_jwk';
 
+let initKeysPromise = null;
+
 export const useAuthStore = create((set, get) => ({
     user: null,
     socket: null,
@@ -25,27 +27,37 @@ export const useAuthStore = create((set, get) => ({
     myPublicKeyJwk: null, // JWK string (for sharing with backend)
 
     _initE2EEKeys: async () => {
-        // Attempt to load existing keypair from localStorage
-        try {
-            const storedPrivJwk = localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
-            const storedPubJwk = localStorage.getItem('e2ee_public_key_jwk');
-            if (storedPrivJwk && storedPubJwk) {
-                const privateKey = await importPrivateKey(storedPrivJwk);
-                set({ myPrivateKey: privateKey, myPublicKeyJwk: storedPubJwk });
-                return { privateKey, publicKeyJwk: storedPubJwk };
-            } else {
-                // Generate new keypair
-                const keyPair = await generateKeyPair();
-                const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
-                const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
-                localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, privKeyJwk);
-                localStorage.setItem('e2ee_public_key_jwk', pubKeyJwk);
-                set({ myPrivateKey: keyPair.privateKey, myPublicKeyJwk: pubKeyJwk });
-                return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk };
+        if (initKeysPromise) return initKeysPromise;
+
+        initKeysPromise = (async () => {
+            // Attempt to load existing keypair from localStorage
+            try {
+                const storedPrivJwk = localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
+                const storedPubJwk = localStorage.getItem('e2ee_public_key_jwk');
+                if (storedPrivJwk && storedPubJwk) {
+                    const privateKey = await importPrivateKey(storedPrivJwk);
+                    set({ myPrivateKey: privateKey, myPublicKeyJwk: storedPubJwk });
+                    return { privateKey, publicKeyJwk: storedPubJwk };
+                } else {
+                    // Generate new keypair
+                    const keyPair = await generateKeyPair();
+                    const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
+                    const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
+                    localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, privKeyJwk);
+                    localStorage.setItem('e2ee_public_key_jwk', pubKeyJwk);
+                    set({ myPrivateKey: keyPair.privateKey, myPublicKeyJwk: pubKeyJwk });
+                    return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk };
+                }
+            } catch (err) {
+                console.error('[E2EE] Failed to initialize keypair:', err);
+                return null;
             }
-        } catch (err) {
-            console.error('[E2EE] Failed to initialize keypair:', err);
-            return null;
+        })();
+
+        try {
+            return await initKeysPromise;
+        } finally {
+            initKeysPromise = null;
         }
     },
 
