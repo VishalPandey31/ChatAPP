@@ -1,0 +1,102 @@
+◇ injected env (8) from .env // tip: ⌘ enable debugging { debug: true }
+[
+  {
+    "_id": "6a8759487cab5eb86bbb2c08",
+    "email": "vishal@gmail.com",
+    "password": "$2b$10$LX.jmrLfUJblALMUA8fMPuM98XI4DJKoTccRPR8z17sAiveqn2kym",
+    "role": "ADMIN",
+    "approvalStatus": "APPROVED",
+    "accountStatus": "ACTIVE",
+    "profilePicture": "",
+    "about": "",
+    "lastSeen": "2026-08-27T17:10:28.622Z",
+    "createdAt": "2026-08-20T19:45:12.395Z",
+    "updatedAt": "2026-08-27T17:10:28.622Z",
+    "__v": 67,
+    "pushSubscriptions": [
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/d4u1vNt1CSI:APA91bHbAsWezBUViteITr3n-YfPd8gwG39ELapJuAZ4E0fv3x2cQeqZ-j7NGxN7D01iO2yfQlJSBfG9IyPfA3wswV3v-FWpwDlu7teq5a83APTsmpk5gr4O5mP9B7AE2xql0gUcICVw",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BDpw-ih9NX-DVHYklSqHYzt_pbV_-h0A0kEiwGXhreyKQpxt_QTxAfPJM_oPoczHAm8LItBtgA5YwYYG3i3xaHs",
+          "auth": "1Iar8rI7A1aQk_z3G5BbJA"
+        }
+      },
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/d8LREaSvJFE:APA91bGdoosMk4OZz27b5_1Z9jEXw6QT1mvWHjJUsfwckdAKfMsT6Si5uQGct1qgTUNUZ2jIxm3-xGoznbr7av0Z9355lEPMvQ0HUqhwZP5QWhBE_Sis6RU7yrklbDtA5fi0mWyK8M5w",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BN7tFtEJsx-vRuOXfhtBoJHGGIWDSiAhlQ6qAZW23mE_5EEMLkvZU-BPp-8GAKPpRDVsQZCb5rmF9nHsq0Mis2A",
+          "auth": "576E7usLd0_9bhJuW6T5nQ"
+        }
+      },
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/c6isqt9_T2E:APA91bFqY6rrgsmUud4VPsJTpdqudqIbnuSxCiLcoI9rMkR2qGgGbLTTqZKjixQCSsVoV_vnnLLLA5_ByriLqk5oL1SN6E8rAKVX62vjvFI2tkuvYWOR9MryLxkrlFg6WGD7qCZcqQDR",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BCdPfAIjK1NPsanxpDtSa9c8gh_8LKwXULj9FpJAdbe8m-1f5O_TwHo7MIu5GenUdZdQHA_0tmw_vcsDHsZjTJU",
+          "auth": "ZHwoMcpONGqbPKM6OYTl5Q"
+        }
+      },
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/fa0BVxBk_0M:APA91bGxO5aMDv0CC1HZVV85L3NZAFBRbiztTSTLJOIv_KUAjGys_cxVgVY-TFD5qGO-ae-x8ni-AQ6x4CHopNHMhn201YbbiewAe10kjxbL9-R9u1ff7nqDfOQf75z-DENXkfNuOoi3",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BOW8I0QIShi5RfK27qsMx0jr7UGuQ9l04plA7dc8uNRg_eMO4MrGjXtO0Oje9h_EncUucJRuDOYP-Qf-y68iebA",
+          "auth": "Q_tdhsme4Vg6IuhB_MZ3xQ"
+        }
+      },
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/cSfbjuNfw0w:APA91bHqfwetoOaDGfhfpBWQOKY578TR4QO1plaCzooToJMUxn6pPHv0jahyQ9vFTM1Qy4pxOq-J0ejWgnOHTSe_WqV33PmTZjnnc8F6hR5z9EKWXkSvsjI_-yKNQyLQKpakV3UtUsH0",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BNfB56xlLr8X5QKagKOkvTn7DozXx93d83K6MfnTIPhbAgCwZoE3xjEQxd7dueX5DbO0PYGkh7DYG7bkCbddTHQ",
+          "auth": "qVWgxFFstpBGi5K4y-lggw"
+        }
+      }
+    ],
+    "publicKey": "{\"crv\":\"P-256\",\"ext\":true,\"key_ops\":[],\"kty\":\"EC\",\"x\":\"0kSAtE6IPyF5BgoXb7E7d5062nS2WAGTqXPjISIiwVE\",\"y\":\"VxNu-ftUYyhpT1jxuf_sVjHR6Moic1SUVzAIp-0_gls\"}"
+  },
+  {
+    "_id": "6a875ef66eacba19e8c5d194",
+    "email": "couple1@gmail.com",
+    "password": "$2b$10$hrUnPVAlSk2oTxit8KkGE.P/05u8tUSYAqM6VJzde/hs0CX/N24Lq",
+    "name": "couple1",
+    "role": "USER",
+    "approvalStatus": "APPROVED",
+    "accountStatus": "ACTIVE",
+    "profilePicture": "",
+    "about": "",
+    "lastSeen": "2026-08-27T10:53:49.701Z",
+    "createdAt": "2026-08-20T20:09:26.598Z",
+    "updatedAt": "2026-08-27T17:08:35.186Z",
+    "__v": 3,
+    "pushSubscriptions": [
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/cSfbjuNfw0w:APA91bHqfwetoOaDGfhfpBWQOKY578TR4QO1plaCzooToJMUxn6pPHv0jahyQ9vFTM1Qy4pxOq-J0ejWgnOHTSe_WqV33PmTZjnnc8F6hR5z9EKWXkSvsjI_-yKNQyLQKpakV3UtUsH0",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BNfB56xlLr8X5QKagKOkvTn7DozXx93d83K6MfnTIPhbAgCwZoE3xjEQxd7dueX5DbO0PYGkh7DYG7bkCbddTHQ",
+          "auth": "qVWgxFFstpBGi5K4y-lggw"
+        }
+      },
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/d4kulReLlbU:APA91bGlMPgqp-Ox10UIlzspX0HcRYGzvGe02jxA4D9R-BrCkQXjNLJwNw9sjBG-lvJSByvxyk9lYpzMWSLkiGYDj7lTZPz3ewyex-1iBKsVNO5m9K5bRAE9FN-ivybyOrNQdsMy46Qq",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BHSS3Giv0swFtTReV9wueirTUTCm9BsWQ7kDNr1XHirlMFQRaajuv-IVhlbZ0--44XAEVa5sR8IEhPSqDutJKtc",
+          "auth": "EA2kAB2F84sVX-_oxAz1KA"
+        }
+      },
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/eCwxiz7LF7w:APA91bFHlt08LclcKrIaLjjf2yCstnwIEO2vpRtAkANCzVMi848aYjMk8gdMrs7n-eWAhXuDoVbon0z-aL4KzeNynnakjBLKN6IB9voB9C0NJmXKkw5Rsd_laKW1hx5PVstn52ZhBIFu",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BMKr5NGn4VSfikjQBLZy_SA3nlqc94YuCTUrSAfmbaEi-sChxOcyiC9ewUWJjLqJXxfKUSisZllLKBdFRbNE7Gc",
+          "auth": "lZwtKovSxdO5p1V8DKkpHA"
+        }
+      }
+    ],
+    "publicKey": "{\"crv\":\"P-256\",\"ext\":true,\"key_ops\":[],\"kty\":\"EC\",\"x\":\"BYG_5WcZbR2eYaSToYuEGN3IVyJ1YO4hHJGXd1Yq7Tg\",\"y\":\"gjhv3N35P9dnOsf9J-cTebC1MZiTAwJISybD5i09OY4\"}"
+  }
+]

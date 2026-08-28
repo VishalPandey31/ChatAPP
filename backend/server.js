@@ -39,7 +39,8 @@ app.use(cors({
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:5175",
-    "https://menifestation.surge.sh"
+    "https://menifestation.surge.sh",
+    "http://menifestation.surge.sh"
   ],
   credentials: true,
 }));
@@ -86,7 +87,8 @@ const io = new Server(server, {
       "http://localhost:5173",
       "http://localhost:5174",
       "http://localhost:5175",
-      "https://menifestation.surge.sh"
+      "https://menifestation.surge.sh",
+      "http://menifestation.surge.sh"
     ],
     credentials: true,
   }

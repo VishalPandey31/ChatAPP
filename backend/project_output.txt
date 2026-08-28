@@ -1,0 +1,17 @@
+(node:24168) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/Vishal/OneDrive/Desktop/ChatApp/backend/query_project.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+◇ injected env (8) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+MissingSchemaError: Schema hasn't been registered for model "User".
+Use mongoose.model(name, schema)
+    at NativeConnection.model (C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\connection.js:1509:13)
+    at _getModelFromConn (C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\helpers\populate\getModelsMapForPopulate.js:706:15)
+    at addModelNamesToMap (C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\helpers\populate\getModelsMapForPopulate.js:636:17)
+    at getModelsMapForPopulate (C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\helpers\populate\getModelsMapForPopulate.js:218:7)
+    at _populatePath (C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\model.js:4534:21)
+    at Function.populate (C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\model.js:4501:21)
+    at C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\query.js:2715:11
+    at _init (C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\query.js:3389:5)
+    at Document.init (C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\document.js:669:5)
+    at Document.$init (C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\node_modules\mongoose\lib\document.js:682:42)

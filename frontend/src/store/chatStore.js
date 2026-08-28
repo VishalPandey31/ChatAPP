@@ -144,19 +144,41 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         if (innerNeedsDecryption) {
             try {
                 const replyPlaintext = await decryptMessage(decryptedMsg.replyTo.content, decryptedMsg.replyTo.iv, sharedKey);
-                // CRITICAL: Clear encryption flags on replyTo after successful decryption
-                decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: replyPlaintext, encryptionVersion: 0, iv: null };
+                decryptedMsg.replyTo = {
+                    id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
+                    senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
+                    text: replyPlaintext,
+                    messageType: decryptedMsg.replyTo.messageType || 'TEXT'
+                };
             } catch (replyErr) {
                 console.warn('[E2EE] Nested reply decryption failed', replyErr.message);
-                decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: '⚠️ Message decryption failed' };
+                decryptedMsg.replyTo = {
+                    id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
+                    senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
+                    text: '⚠️ Message decryption failed',
+                    messageType: decryptedMsg.replyTo.messageType || 'TEXT'
+                };
             }
+        } else if (decryptedMsg.replyTo) {
+            // Already readable or non-text message
+            decryptedMsg.replyTo = {
+                id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
+                senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
+                text: decryptedMsg.replyTo.content || decryptedMsg.replyTo.text,
+                messageType: decryptedMsg.replyTo.messageType || 'TEXT'
+            };
         }
 
         return decryptedMsg;
     } catch (err) {
         // Absolute fallback for unexpected crypto initialization errors
         if (outerNeedsDecryption) decryptedMsg.content = '⚠️ Message decryption failed';
-        if (innerNeedsDecryption) decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: '⚠️ Message decryption failed' };
+        if (innerNeedsDecryption) decryptedMsg.replyTo = {
+            id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
+            senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
+            text: '⚠️ Message decryption failed',
+            messageType: decryptedMsg.replyTo.messageType || 'TEXT'
+        };
         return decryptedMsg;
     }
 }
@@ -493,14 +515,10 @@ export const useChatStore = create(
                     if (replyMsg) {
                         // Store a UI-safe snapshot: guaranteed decrypted plaintext content
                         optimisticMsg.replyTo = {
-                            _id: replyMsg._id,
-                            content: replyMsg.content,
-                            sender: replyMsg.sender,
-                            messageType: replyMsg.messageType || 'TEXT',
-                            deleted: replyMsg.deleted || false,
-                            // CRITICAL: Force-clear encryption flags — this content is already decrypted in state
-                            encryptionVersion: 0,
-                            iv: null
+                            id: replyMsg._id || replyMsg.id,
+                            senderId: typeof replyMsg.sender === 'object' ? (replyMsg.sender._id || replyMsg.sender.id) : replyMsg.sender,
+                            text: replyMsg.content || replyMsg.text,
+                            messageType: replyMsg.messageType || 'TEXT'
                         };
                     }
                 }
@@ -577,28 +595,9 @@ export const useChatStore = create(
                     }
                 }
 
-                // SAFETY NET: If replyTo still has encryptionVersion=1 after all decryption attempts,
-                // it means ciphertext leaked through. Try one more time with a fresh key derivation.
-                if (decryptedMsg.replyTo && (decryptedMsg.replyTo.encryptionVersion === 1 || !!decryptedMsg.replyTo.iv) && decryptedMsg.replyTo.messageType === 'TEXT' && !decryptedMsg.replyTo.deleted) {
-                    try {
-                        const storeRecipient = get().activeRecipientId;
-                        let fallbackRecipientId = storeRecipient;
-                        if (!fallbackRecipientId) {
-                            const replySenderId = typeof decryptedMsg.replyTo.sender === 'object' ? decryptedMsg.replyTo.sender?._id?.toString() : decryptedMsg.replyTo.sender?.toString();
-                            const myId2 = useAuthStore.getState().user?._id?.toString();
-                            if (replySenderId && replySenderId !== myId2) fallbackRecipientId = replySenderId;
-                            else if (senderId && senderId !== myId2) fallbackRecipientId = senderId;
-                        }
-                        if (fallbackRecipientId) {
-                            const sharedKey = await getSharedSecret(fallbackRecipientId);
-                            if (sharedKey) {
-                                const replyPlaintext = await decryptMessage(decryptedMsg.replyTo.content, decryptedMsg.replyTo.iv, sharedKey);
-                                decryptedMsg.replyTo = { ...decryptedMsg.replyTo, content: replyPlaintext, encryptionVersion: 0, iv: null };
-                            }
-                        }
-                    } catch (safetyErr) {
-                        console.warn('[E2EE] Safety net replyTo decryption failed', safetyErr.message);
-                    }
+                // SAFETY NET: Cleaned up as the structure is heavily enforced now
+                if (decryptedMsg.replyTo && decryptedMsg.replyTo.encryptionVersion === 1) {
+                    decryptedMsg.replyTo.text = '⚠️ Nested decryption failed';
                 }
 
                 set((state) => {

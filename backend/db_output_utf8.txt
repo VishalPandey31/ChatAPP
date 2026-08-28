@@ -1,0 +1,203 @@
+◇ injected env (8) from .env // tip: ⌘ enable debugging { debug: true }
+[
+  {
+    "_id": "6a907106a20bcccf4079e96b",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "Ok",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787851013485-9228",
+    "edited": false,
+    "deleted": false,
+    "status": "DELIVERED",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:16:54.640Z",
+    "updatedAt": "2026-08-27T17:16:55.937Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a9070eca20bcccf4079e96a",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "?",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787850985902-2118",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:16:28.073Z",
+    "updatedAt": "2026-08-27T17:16:33.661Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a9070dea20bcccf4079e969",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "Gyb ",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787850973241-9485",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:16:14.213Z",
+    "updatedAt": "2026-08-27T17:16:28.938Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a9070c5a20bcccf4079e968",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "Essay?",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787850948456-9773",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:15:49.469Z",
+    "updatedAt": "2026-08-27T17:15:50.515Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a9070bca20bcccf4079e967",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "Kafi bad likh rhi",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787850939629-9527",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:15:40.613Z",
+    "updatedAt": "2026-08-27T17:15:50.515Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a907050a20bcccf4079e966",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "Uss din ka shiva k bday k din ka ",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787850831665-9372",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:13:52.659Z",
+    "updatedAt": "2026-08-27T17:13:53.886Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a90703ba20bcccf4079e965",
+    "sender": "6a875ef66eacba19e8c5d194",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "qzFlHiclQGncBQsggqgRutP4ZS2z",
+    "iv": "e1Wrnm4KqF2cAV/y",
+    "encryptionVersion": 1,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787850808889-7179",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:13:31.621Z",
+    "updatedAt": "2026-08-27T17:15:32.304Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a907033a20bcccf4079e964",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "Photo bheji nhi",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787850802286-4288",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:13:23.272Z",
+    "updatedAt": "2026-08-27T17:13:53.886Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a90702ca20bcccf4079e963",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "Acha ",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787850795598-5794",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:13:16.579Z",
+    "updatedAt": "2026-08-27T17:13:24.256Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a90701da20bcccf4079e962",
+    "sender": "6a875ef66eacba19e8c5d194",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "K2ruU09ecUY11MTjWYbBEGvFUZ1Bj4+Vojk=",
+    "iv": "yEI+nhBmo5hOKov7",
+    "encryptionVersion": 1,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787850778734-3491",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:13:01.475Z",
+    "updatedAt": "2026-08-27T17:13:32.675Z",
+    "__v": 0
+  }
+]

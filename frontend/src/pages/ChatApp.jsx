@@ -47,13 +47,6 @@ const renderMessageContent = (content) => {
     });
 };
 
-const isOnlyEmojis = (str) => {
-    if (!str) return false;
-    const noSpace = str.replace(/[\s\n]/g, '');
-    if (noSpace.length === 0) return false;
-    const emojiRegex = /^[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{200D}\u{FE0F}]+$/u;
-    return emojiRegex.test(noSpace) && noSpace.length <= 6;
-};
 
 const formatLastSeen = (dateInput) => {
     if (!dateInput) return 'Offline';
@@ -442,11 +435,10 @@ const ChatApp = () => {
     const currentMessage = textareaRef.current?.value || '';
     
     // Check if empty (no image and no text)
-    if (!pendingImage && !currentMessage.trim()) return;
     if (!projectId) return;
 
     if (pendingImage) {
-        sendProjectMessage(projectId, pendingImage, replyingTo?._id, 'IMAGE');
+        sendProjectMessage(projectId, pendingImage, replyingTo?.id, 'IMAGE');
         setPendingImage(null);
     }
     
@@ -458,10 +450,10 @@ const ChatApp = () => {
             // Delay text slightly if sending with image to preserve visual order
             if (pendingImage) {
                 setTimeout(() => {
-                    sendProjectMessage(projectId, currentMessage, replyingTo?._id, 'TEXT');
+                    sendProjectMessage(projectId, currentMessage, replyingTo?.id, 'TEXT');
                 }, 100);
             } else {
-                sendProjectMessage(projectId, currentMessage, replyingTo?._id, 'TEXT');
+                sendProjectMessage(projectId, currentMessage, replyingTo?.id, 'TEXT');
             }
         }
     }
@@ -743,7 +735,13 @@ const ChatApp = () => {
                     }
 
                     if ((!isMine && diffX > 50) || (isMine && diffX < -50)) {
-                      setReplyingTo(msg);
+                      setReplyingTo({
+                          id: msg._id || msg.id,
+                          senderId: typeof msg.sender === 'object' ? (msg.sender?._id || msg.sender?.id) : msg.sender,
+                          text: msg.content || msg.text,
+                          messageType: msg.messageType,
+                          deleted: msg.deleted
+                      });
                     }
                     
                     setTimeout(() => {
@@ -761,8 +759,6 @@ const ChatApp = () => {
                   const handleBubbleTouchEnd = () => {
                       if (pressTimer.current) clearTimeout(pressTimer.current);
                   };
-
-                  const isJumbo = msg.messageType === 'TEXT' && !msg.deleted && isOnlyEmojis(msg.content);
 
                   return (
                     <div key={index} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: '20px' }}>
@@ -802,7 +798,7 @@ const ChatApp = () => {
                             <Reply size={14} style={{ transform: isMine ? 'scaleX(-1)' : 'none' }} />
                           </div>
 
-                          <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} className={`chat-bubble relative group ${isJumbo ? 'jumbo-emoji-override' : ''}`} 
+                          <div id={`msg-bubble-${msg._id}`} data-ismine={Boolean(isMine)} className="chat-bubble relative group" 
                             onTouchStart={(e) => { handleTouchStart(e); handleBubbleTouchStart(e); }}
                             onTouchMove={(e) => { handleTouchMove(e); handleBubbleTouchEnd(e); }}
                             onTouchEnd={(e) => { handleTouchEnd(e, msg); handleBubbleTouchEnd(e); }}
@@ -815,13 +811,11 @@ const ChatApp = () => {
                             borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                             border: isMine ? 'none' : '1px solid #243044',
                             wordBreak: 'break-word',
-                            lineHeight: isJumbo ? '1.2' : '1.5',
+                            lineHeight: '1.5',
                             fontSize: '15px', 
                             fontFamily: '"Inter", sans-serif',
                             boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                            position: 'relative',
                             userSelect: 'none', // Prevent text selection on mobile swipe
-                            width: '100%',
                             zIndex: 2
                           }}>
                             {/* Hover Actions Menu Desktop/Mobile */}
@@ -840,7 +834,7 @@ const ChatApp = () => {
                               className="md-show-on-hover"
                             >
                                 <div title="React" onClick={() => setReactionMsgId(reactionMsgId === msg._id ? null : msg._id)} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Smile size={14} /></div>
-                                {!msg.deleted && <div title="Reply" onClick={() => setReplyingTo(msg)} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Reply size={14} /></div>}
+                                {!msg.deleted && <div title="Reply" onClick={() => setReplyingTo({ id: msg._id || msg.id, senderId: typeof msg.sender === 'object' ? (msg.sender?._id || msg.sender?.id) : msg.sender, text: msg.content || msg.text, messageType: msg.messageType, deleted: msg.deleted })} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Reply size={14} /></div>}
                                 {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); setMsgContent(msg.content); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Pencil size={14} /></div>}
                                 {isMine && !msg.deleted && <div title="Delete" onClick={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Trash2 size={14} /></div>}
                             </div>
@@ -888,7 +882,7 @@ const ChatApp = () => {
                                       </div>
 
                                       <div title="More Reactions" onClick={() => { setReactionMsgId(reactionMsgId === msg._id ? null : msg._id); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', cursor: 'pointer', borderRadius: '4px' }} onMouseEnter={e=>e.currentTarget.style.backgroundColor='#1E293B'} onMouseLeave={e=>e.currentTarget.style.backgroundColor='transparent'}><Smile size={20} /> More Reactions</div>
-                                      {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo(msg); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', cursor: 'pointer', borderRadius: '4px' }} onMouseEnter={e=>e.currentTarget.style.backgroundColor='#1E293B'} onMouseLeave={e=>e.currentTarget.style.backgroundColor='transparent'}><Reply size={20} /> Reply</div>}
+                                      {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo({ id: msg._id || msg.id, senderId: typeof msg.sender === 'object' ? (msg.sender?._id || msg.sender?.id) : msg.sender, text: msg.content || msg.text, messageType: msg.messageType, deleted: msg.deleted }); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', cursor: 'pointer', borderRadius: '4px' }} onMouseEnter={e=>e.currentTarget.style.backgroundColor='#1E293B'} onMouseLeave={e=>e.currentTarget.style.backgroundColor='transparent'}><Reply size={20} /> Reply</div>}
                                       {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); if(textareaRef.current) { textareaRef.current.value = msg.content; textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); } setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px' }}><Pencil size={20} /> Edit</div>}
                                       
                                       <div style={{ height: '1px', backgroundColor: '#243044', margin: '4px 0' }} />
@@ -900,12 +894,10 @@ const ChatApp = () => {
 
                             {/* Reply Context Nested Block */}
                             {msg.replyTo && (() => {
-                              const replySenderId = (typeof msg.replyTo.sender === 'object' && msg.replyTo.sender?._id) ? msg.replyTo.sender._id.toString() : msg.replyTo.sender?.toString();
+                              const replySenderId = typeof msg.replyTo.senderId === 'object' ? msg.replyTo.senderId?._id?.toString() : msg.replyTo.senderId?.toString();
                               let replyDisplay = 'Teammate';
                               if (replySenderId === user._id.toString()) {
                                 replyDisplay = 'You';
-                              } else if (typeof msg.replyTo.sender === 'object' && msg.replyTo.sender?.email) {
-                                replyDisplay = msg.replyTo.sender.name || msg.replyTo.sender.email.split('@')[0];
                               } else if (currentProject) {
                                 const matchedMember = [currentProject.admin, ...(currentProject.collaborators || [])].find(m => {
                                     if (!m) return false;
@@ -919,7 +911,7 @@ const ChatApp = () => {
                               return (
                               <div 
                                 onClick={() => {
-                                  const targetId = typeof msg.replyTo === 'object' ? msg.replyTo._id : msg.replyTo;
+                                  const targetId = typeof msg.replyTo === 'object' ? (msg.replyTo.id || msg.replyTo._id) : msg.replyTo;
                                   const element = document.getElementById(`msg-bubble-${targetId}`);
                                   if (element) {
                                       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -945,7 +937,7 @@ const ChatApp = () => {
                                 </div>
                                 <div style={{ color: isMine ? '#E0F2FE' : '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                   {msg.replyTo.messageType === 'IMAGE' && <ImageIcon size={12} />}
-                                  {msg.replyTo.messageType === 'IMAGE' ? 'Photo' : msg.replyTo.content}
+                                  {msg.replyTo.messageType === 'IMAGE' ? 'Photo' : msg.replyTo.text}
                                 </div>
                               </div>
                               );
@@ -968,7 +960,7 @@ const ChatApp = () => {
                                 <div style={{ 
                                     position: 'absolute', 
                                     bottom: '-12px', 
-                                    [isMine ? 'right' : 'left']: isJumbo ? '0px' : '16px', 
+                                    [isMine ? 'right' : 'left']: '16px', 
                                     display: 'flex', 
                                     alignItems: 'center',
                                     gap: '2px', 
@@ -1029,12 +1021,10 @@ const ChatApp = () => {
                   <X size={18} onClick={() => { setEditingMessage(null); if (textareaRef.current) textareaRef.current.value = ''; updateSendButtonStyles(''); }} style={{ color: '#94A3B8', cursor: 'pointer' }} />
                 </div>
               ) : replyingTo ? (() => {
-                  const replyPreviewSenderId = typeof replyingTo.sender === 'object' ? replyingTo.sender?._id : replyingTo.sender;
+                  const replyPreviewSenderId = typeof replyingTo.senderId === 'object' ? replyingTo.senderId?._id : replyingTo.senderId;
                   let replyPreviewDisplay = 'Teammate';
                   if (replyPreviewSenderId === user._id) {
                     replyPreviewDisplay = 'yourself';
-                  } else if (typeof replyingTo.sender === 'object' && replyingTo.sender?.email) {
-                    replyPreviewDisplay = replyingTo.sender.name || replyingTo.sender.email.split('@')[0];
                   } else if (currentProject) {
                     const matchedMember = [currentProject.admin, ...(currentProject.collaborators || [])].find(m => m && m._id === replyPreviewSenderId);
                     if (matchedMember) replyPreviewDisplay = matchedMember.name || matchedMember.email.split('@')[0];
@@ -1048,7 +1038,7 @@ const ChatApp = () => {
                     </span>
                     <span style={{ fontSize: '13px', color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {replyingTo.messageType === 'IMAGE' && <ImageIcon size={12} />}
-                      {replyingTo.messageType === 'IMAGE' ? 'Photo' : replyingTo.content}
+                      {replyingTo.messageType === 'IMAGE' ? 'Photo' : replyingTo.text}
                     </span>
                   </div>
                   <X size={18} onClick={() => setReplyingTo(null)} style={{ color: '#94A3B8', cursor: 'pointer', flexShrink: 0, paddingLeft: '8px' }} />
@@ -1210,7 +1200,7 @@ const ChatApp = () => {
                          </div>
 
                          <Item icon={Smile} label="More Reactions" action={() => setReactionMsgId(reactionMsgId === activeMsg._id ? null : activeMsg._id)} />
-                         {!activeMsg.deleted && <Item icon={Reply} label="Reply" action={() => setReplyingTo(activeMsg)} />}
+                         {!activeMsg.deleted && <Item icon={Reply} label="Reply" action={() => setReplyingTo({ id: activeMsg._id || activeMsg.id, senderId: typeof activeMsg.sender === 'object' ? (activeMsg.sender?._id || activeMsg.sender?.id) : activeMsg.sender, text: activeMsg.content || activeMsg.text, messageType: activeMsg.messageType, deleted: activeMsg.deleted })} />}
                          {isMine && !activeMsg.deleted && activeMsg.messageType === 'TEXT' && <Item icon={Pencil} label="Edit" action={() => { setEditingMessage(activeMsg); if(textareaRef.current) { textareaRef.current.value = activeMsg.content; textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); } }} />}
                          {!activeMsg.deleted && <Item icon={Trash2} label="Delete for me" action={() => { deleteMessageLocally(activeMsg._id); }} />}
                          {isMine && !activeMsg.deleted && <Item icon={Trash2} color="#EF4444" label="Delete for everyone" action={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: activeMsg._id, senderId: user._id, projectId }); }} />}

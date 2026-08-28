@@ -1,0 +1,47 @@
+(node:20268) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/Vishal/OneDrive/Desktop/ChatApp/backend/query_matching.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+◇ injected env (8) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+[
+  {
+    "_id": "6a9071fea20bcccf4079e996",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "Mess aaya hi nhi tha ek bhi ky krta",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787851261480-2618",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:21:02.752Z",
+    "updatedAt": "2026-08-27T17:26:06.593Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a907203a20bcccf4079e997",
+    "sender": "6a8759487cab5eb86bbb2c08",
+    "projectId": "6a87677d3381257915f12e03",
+    "content": "Kabse likh rha",
+    "iv": null,
+    "encryptionVersion": 0,
+    "messageType": "TEXT",
+    "callMeta": {
+      "duration": 0
+    },
+    "clientMessageId": "msg-1787851266072-4746",
+    "edited": false,
+    "deleted": false,
+    "status": "READ",
+    "reactions": [],
+    "createdAt": "2026-08-27T17:21:07.373Z",
+    "updatedAt": "2026-08-27T17:26:06.593Z",
+    "__v": 0
+  }
+]

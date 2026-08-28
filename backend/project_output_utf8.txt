@@ -1,0 +1,112 @@
+(node:13180) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/Vishal/OneDrive/Desktop/ChatApp/backend/query_project_fixed.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\Vishal\OneDrive\Desktop\ChatApp\backend\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+◇ injected env (8) from .env // tip: ⌘ override existing { override: true }
+{
+  "_id": "6a87677d3381257915f12e03",
+  "name": "couple chats",
+  "admin": {
+    "_id": "6a8759487cab5eb86bbb2c08",
+    "email": "vishal@gmail.com",
+    "password": "$2b$10$LX.jmrLfUJblALMUA8fMPuM98XI4DJKoTccRPR8z17sAiveqn2kym",
+    "role": "ADMIN",
+    "approvalStatus": "APPROVED",
+    "accountStatus": "ACTIVE",
+    "profilePicture": "",
+    "about": "",
+    "lastSeen": "2026-08-27T17:20:02.928Z",
+    "createdAt": "2026-08-20T19:45:12.395Z",
+    "updatedAt": "2026-08-27T17:20:08.302Z",
+    "__v": 70,
+    "pushSubscriptions": [
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/d8LREaSvJFE:APA91bGdoosMk4OZz27b5_1Z9jEXw6QT1mvWHjJUsfwckdAKfMsT6Si5uQGct1qgTUNUZ2jIxm3-xGoznbr7av0Z9355lEPMvQ0HUqhwZP5QWhBE_Sis6RU7yrklbDtA5fi0mWyK8M5w",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BN7tFtEJsx-vRuOXfhtBoJHGGIWDSiAhlQ6qAZW23mE_5EEMLkvZU-BPp-8GAKPpRDVsQZCb5rmF9nHsq0Mis2A",
+          "auth": "576E7usLd0_9bhJuW6T5nQ"
+        }
+      },
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/cSfbjuNfw0w:APA91bHqfwetoOaDGfhfpBWQOKY578TR4QO1plaCzooToJMUxn6pPHv0jahyQ9vFTM1Qy4pxOq-J0ejWgnOHTSe_WqV33PmTZjnnc8F6hR5z9EKWXkSvsjI_-yKNQyLQKpakV3UtUsH0",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BNfB56xlLr8X5QKagKOkvTn7DozXx93d83K6MfnTIPhbAgCwZoE3xjEQxd7dueX5DbO0PYGkh7DYG7bkCbddTHQ",
+          "auth": "qVWgxFFstpBGi5K4y-lggw"
+        }
+      },
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/fa0BVxBk_0M:APA91bGxO5aMDv0CC1HZVV85L3NZAFBRbiztTSTLJOIv_KUAjGys_cxVgVY-TFD5qGO-ae-x8ni-AQ6x4CHopNHMhn201YbbiewAe10kjxbL9-R9u1ff7nqDfOQf75z-DENXkfNuOoi3",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BOW8I0QIShi5RfK27qsMx0jr7UGuQ9l04plA7dc8uNRg_eMO4MrGjXtO0Oje9h_EncUucJRuDOYP-Qf-y68iebA",
+          "auth": "Q_tdhsme4Vg6IuhB_MZ3xQ"
+        }
+      },
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/d4u1vNt1CSI:APA91bHbAsWezBUViteITr3n-YfPd8gwG39ELapJuAZ4E0fv3x2cQeqZ-j7NGxN7D01iO2yfQlJSBfG9IyPfA3wswV3v-FWpwDlu7teq5a83APTsmpk5gr4O5mP9B7AE2xql0gUcICVw",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BDpw-ih9NX-DVHYklSqHYzt_pbV_-h0A0kEiwGXhreyKQpxt_QTxAfPJM_oPoczHAm8LItBtgA5YwYYG3i3xaHs",
+          "auth": "1Iar8rI7A1aQk_z3G5BbJA"
+        }
+      }
+    ],
+    "publicKey": "{\"crv\":\"P-256\",\"ext\":true,\"key_ops\":[],\"kty\":\"EC\",\"x\":\"0kSAtE6IPyF5BgoXb7E7d5062nS2WAGTqXPjISIiwVE\",\"y\":\"VxNu-ftUYyhpT1jxuf_sVjHR6Moic1SUVzAIp-0_gls\"}"
+  },
+  "collaborators": [
+    {
+      "_id": "6a8759487cab5eb86bbb2c08",
+      "email": "vishal@gmail.com",
+      "password": "$2b$10$LX.jmrLfUJblALMUA8fMPuM98XI4DJKoTccRPR8z17sAiveqn2kym",
+      "role": "ADMIN",
+      "approvalStatus": "APPROVED",
+      "accountStatus": "ACTIVE",
+      "profilePicture": "",
+      "about": "",
+      "lastSeen": "2026-08-27T17:20:02.928Z",
+      "createdAt": "2026-08-20T19:45:12.395Z",
+      "updatedAt": "2026-08-27T17:20:08.302Z",
+      "__v": 70,
+      "pushSubscriptions": [
+        {
+          "endpoint": "https://fcm.googleapis.com/fcm/send/d8LREaSvJFE:APA91bGdoosMk4OZz27b5_1Z9jEXw6QT1mvWHjJUsfwckdAKfMsT6Si5uQGct1qgTUNUZ2jIxm3-xGoznbr7av0Z9355lEPMvQ0HUqhwZP5QWhBE_Sis6RU7yrklbDtA5fi0mWyK8M5w",
+          "expirationTime": null,
+          "keys": {
+            "p256dh": "BN7tFtEJsx-vRuOXfhtBoJHGGIWDSiAhlQ6qAZW23mE_5EEMLkvZU-BPp-8GAKPpRDVsQZCb5rmF9nHsq0Mis2A",
+            "auth": "576E7usLd0_9bhJuW6T5nQ"
+          }
+        },
+        {
+          "endpoint": "https://fcm.googleapis.com/fcm/send/cSfbjuNfw0w:APA91bHqfwetoOaDGfhfpBWQOKY578TR4QO1plaCzooToJMUxn6pPHv0jahyQ9vFTM1Qy4pxOq-J0ejWgnOHTSe_WqV33PmTZjnnc8F6hR5z9EKWXkSvsjI_-yKNQyLQKpakV3UtUsH0",
+          "expirationTime": null,
+          "keys": {
+            "p256dh": "BNfB56xlLr8X5QKagKOkvTn7DozXx93d83K6MfnTIPhbAgCwZoE3xjEQxd7dueX5DbO0PYGkh7DYG7bkCbddTHQ",
+            "auth": "qVWgxFFstpBGi5K4y-lggw"
+          }
+        },
+        {
+          "endpoint": "https://fcm.googleapis.com/fcm/send/fa0BVxBk_0M:APA91bGxO5aMDv0CC1HZVV85L3NZAFBRbiztTSTLJOIv_KUAjGys_cxVgVY-TFD5qGO-ae-x8ni-AQ6x4CHopNHMhn201YbbiewAe10kjxbL9-R9u1ff7nqDfOQf75z-DENXkfNuOoi3",
+          "expirationTime": null,
+          "keys": {
+            "p256dh": "BOW8I0QIShi5RfK27qsMx0jr7UGuQ9l04plA7dc8uNRg_eMO4MrGjXtO0Oje9h_EncUucJRuDOYP-Qf-y68iebA",
+            "auth": "Q_tdhsme4Vg6IuhB_MZ3xQ"
+          }
+        },
+        {
+          "endpoint": "https://fcm.googleapis.com/fcm/send/d4u1vNt1CSI:APA91bHbAsWezBUViteITr3n-YfPd8gwG39ELapJuAZ4E0fv3x2cQeqZ-j7NGxN7D01iO2yfQlJSBfG9IyPfA3wswV3v-FWpwDlu7teq5a83APTsmpk5gr4O5mP9B7AE2xql0gUcICVw",
+          "expirationTime": null,
+          "keys": {
+            "p256dh": "BDpw-ih9NX-DVHYklSqHYzt_pbV_-h0A0kEiwGXhreyKQpxt_QTxAfPJM_oPoczHAm8LItBtgA5YwYYG3i3xaHs",
+            "auth": "1Iar8rI7A1aQk_z3G5BbJA"
+          }
+        }
+      ],
+      "publicKey": "{\"crv\":\"P-256\",\"ext\":true,\"key_ops\":[],\"kty\":\"EC\",\"x\":\"0kSAtE6IPyF5BgoXb7E7d5062nS2WAGTqXPjISIiwVE\",\"y\":\"VxNu-ftUYyhpT1jxuf_sVjHR6Moic1SUVzAIp-0_gls\"}"
+    }
+  ],
+  "createdAt": "2026-08-20T20:45:49.242Z",
+  "updatedAt": "2026-08-20T20:45:49.242Z",
+  "__v": 0
+}

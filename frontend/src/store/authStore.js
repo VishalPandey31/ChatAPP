@@ -85,6 +85,9 @@ export const useAuthStore = create((set, get) => ({
             return true;
         } catch (err) {
             console.error(err);
+            if (err.message === 'Failed to fetch') {
+                throw new Error('Server is waking up (takes ~50 sec). Please wait and try clicking again in a few seconds.');
+            }
             throw err;
         }
     },
@@ -110,6 +113,9 @@ export const useAuthStore = create((set, get) => ({
             return true;
         } catch (err) {
             console.error(err);
+            if (err.message === 'Failed to fetch') {
+                throw new Error('Server is waking up (takes ~50 sec). Please wait and try clicking again in a few seconds.');
+            }
             throw err;
         }
     },
