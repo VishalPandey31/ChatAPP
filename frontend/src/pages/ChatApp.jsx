@@ -38,7 +38,7 @@ const renderMessageContent = (content) => {
     return parts.map((part, i) => {
         if (part.match(urlRegex)) {
             return (
-                <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: '#60A5FA', textDecoration: 'underline' }} onClick={(e) => e.stopPropagation()}>
+                <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: '#60A5FA', textDecoration: 'underline', wordBreak: 'break-all', overflowWrap: 'anywhere' }} onClick={(e) => e.stopPropagation()}>
                     {part}
                 </a>
             );
@@ -106,6 +106,7 @@ const ChatApp = () => {
   const textareaRef = useRef(null);
   
   const [recoveryState, setRecoveryState] = useState(null);
+  const [isSending, setIsSending] = useState(false);
 
   const handleRecoverMessages = async () => {
       try {
@@ -145,8 +146,52 @@ const ChatApp = () => {
       }
       return null;
   };
+
   const callTarget = getCallTarget();
   const targetIdStr = callTarget ? (callTarget._id ? callTarget._id.toString() : callTarget.toString()) : null;
+
+  useEffect(() => {
+      if (targetIdStr) {
+          setActiveRecipientId(targetIdStr);
+      }
+  }, [targetIdStr, setActiveRecipientId]);
+
+  useEffect(() => {
+     if (currentProject && currentProject.screenshotProtectionEnabled) {
+         const handleKeyDown = (e) => {
+             if (e.key === 'PrintScreen' || (e.ctrlKey && e.key === 'p') || (e.metaKey && e.shiftKey && (e.key === 's' || e.key === '3' || e.key === '4' || e.key === '5'))) {
+                e.preventDefault();
+                document.body.style.filter = 'blur(15px)';
+                setTimeout(() => document.body.style.filter = 'none', 3000);
+             }
+         };
+         
+         const handleContextMenu = (e) => e.preventDefault();
+         const handleVisibilityChange = () => {
+             if (document.hidden) {
+                 document.body.style.filter = 'blur(15px)';
+             } else {
+                 document.body.style.filter = 'none';
+             }
+         };
+         
+         window.addEventListener('keydown', handleKeyDown);
+         window.addEventListener('contextmenu', handleContextMenu);
+         document.addEventListener('visibilitychange', handleVisibilityChange);
+         
+         document.body.style.userSelect = 'none';
+         document.body.style.WebkitUserSelect = 'none';
+
+         return () => {
+             window.removeEventListener('keydown', handleKeyDown);
+             window.removeEventListener('contextmenu', handleContextMenu);
+             document.removeEventListener('visibilitychange', handleVisibilityChange);
+             document.body.style.filter = 'none';
+             document.body.style.userSelect = 'auto';
+             document.body.style.WebkitUserSelect = 'auto';
+         }
+     }
+  }, [currentProject?.screenshotProtectionEnabled]);
 
   useEffect(() => {
       // Explicitly check presence on load/reconnect to fix any missed socket broadcasts
@@ -409,10 +454,10 @@ const ChatApp = () => {
     }
   }, [messages]);
 
-  const updateSendButtonStyles = (val) => {
+  const updateSendButtonStyles = (val, img = pendingImage) => {
       const btn = document.getElementById('chat-send-btn');
       if (btn) {
-          const hasText = Boolean(val.trim());
+          const hasText = Boolean(val.trim()) || Boolean(img);
           btn.disabled = !hasText;
           btn.style.backgroundColor = hasText ? '#2563EB' : '#1E293B';
           btn.style.color = hasText ? 'white' : '#64748B';
@@ -444,46 +489,53 @@ const ChatApp = () => {
       }
   };
 
-  const handleSend = (e) => {
-    e.preventDefault();
+  const handleSend = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (isSending) return;
     const currentMessage = textareaRef.current?.value || '';
     
     // Check if empty (no image and no text)
     if (!projectId) return;
+    if (!currentMessage.trim() && !pendingImage) return;
 
-    if (pendingImage) {
-        sendProjectMessage(projectId, pendingImage, replyingTo?.id, 'IMAGE');
-        setPendingImage(null);
-    }
-    
-    if (currentMessage.trim()) {
-        if (editingMessage && !pendingImage) {
-            useChatStore.getState().editProjectMessage(editingMessage._id, projectId, currentMessage);
-            setEditingMessage(null);
-        } else {
-            // Delay text slightly if sending with image to preserve visual order
-            if (pendingImage) {
-                setTimeout(() => {
-                    sendProjectMessage(projectId, currentMessage, replyingTo?.id, 'TEXT');
-                }, 100);
+    setIsSending(true);
+
+    try {
+        if (pendingImage) {
+            await sendProjectMessage(projectId, pendingImage, replyingTo?.id, 'IMAGE');
+            setPendingImage(null);
+        }
+        
+        if (currentMessage.trim()) {
+            if (editingMessage && !pendingImage) {
+                await useChatStore.getState().editProjectMessage(editingMessage._id, projectId, currentMessage);
+                setEditingMessage(null);
             } else {
-                sendProjectMessage(projectId, currentMessage, replyingTo?.id, 'TEXT');
+                // Delay text slightly if sending with image to preserve visual order
+                if (pendingImage) {
+                    await new Promise(r => setTimeout(r, 100));
+                }
+                await sendProjectMessage(projectId, currentMessage, replyingTo?.id, 'TEXT');
             }
         }
-    }
-    
-    setReplyingTo(null);
-    setShowEmojiPicker(false);
-    if (textareaRef.current) {
-        textareaRef.current.value = '';
-        textareaRef.current.style.height = 'auto'; 
-    }
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    updateSendButtonStyles('');
-    
-    if (socket && typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-        socket.emit("stop_typing_project", { senderId: user._id, projectId });
+        
+        setReplyingTo(null);
+        setShowEmojiPicker(false);
+        if (textareaRef.current) {
+            textareaRef.current.value = '';
+            textareaRef.current.style.height = 'auto'; 
+        }
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        updateSendButtonStyles('');
+        
+        if (socket && typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+            socket.emit("stop_typing_project", { senderId: user._id, projectId });
+        }
+    } catch (err) {
+        console.error("Message send failed:", err);
+    } finally {
+        setIsSending(false);
     }
   };
 
@@ -495,7 +547,7 @@ const ChatApp = () => {
     const reader = new FileReader();
     reader.onload = (event) => {
        setPendingImage(event.target.result);
-       updateSendButtonStyles(event.target.result);
+       updateSendButtonStyles(textareaRef.current?.value || '', event.target.result);
     };
     reader.readAsDataURL(file);
     e.target.value = ''; // reset so same file can be chosen again
@@ -810,11 +862,10 @@ const ChatApp = () => {
                           </span>
                         </div>
                         
-                        {/* Interactive message row container */}
                         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                           
                           {/* Swipe to reply icon indicator */}
-                          <div className="swipe-reply-icon" style={{ 
+                          <div className="swipe-reply-icon" style={{  
                             position: 'absolute', 
                             [isMine ? 'right' : 'left']: '-30px', 
                             opacity: 0, 
@@ -1048,11 +1099,11 @@ const ChatApp = () => {
               {/* Pre-input States (Editing/Replying) */}
               {editingMessage ? (
                 <div className="animate-fade-in" style={{ backgroundColor: '#111827', padding: '12px 20px', borderRadius: '16px 16px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '4px solid #10B981', borderTop: '1px solid #243044', borderRight: '1px solid #243044' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: 0 }}>
                     <span style={{ fontSize: '13px', fontWeight: '600', color: '#10B981', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <Pencil size={14}/> Editing Message
                     </span>
-                    <span style={{ fontSize: '13px', color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px', fontFamily: '"Inter", sans-serif' }}>
+                    <span style={{ fontSize: '13px', color: '#94A3B8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', maxHeight: '40px', overflow: 'hidden', flex: 1, minWidth: 0, fontFamily: '"Inter", sans-serif' }}>
                       {editingMessage.content}
                     </span>
                   </div>
@@ -1070,11 +1121,11 @@ const ChatApp = () => {
                   
                   return (
                 <div className="animate-fade-in" style={{ backgroundColor: '#111827', padding: '12px 20px', borderRadius: '16px 16px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '4px solid #2563EB', borderTop: '1px solid #243044', borderRight: '1px solid #243044' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden', flex: 1, minWidth: 0 }}>
                     <span style={{ fontSize: '13px', fontWeight: '600', color: '#3B82F6', fontFamily: '"Inter", sans-serif' }}>
                       Replying to {replyPreviewDisplay}
                     </span>
-                    <span style={{ fontSize: '13px', color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '13px', color: '#94A3B8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', maxHeight: '40px', overflow: 'hidden', flex: 1, minWidth: 0, fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {replyingTo.messageType === 'IMAGE' && <ImageIcon size={12} />}
                       {replyingTo.messageType === 'IMAGE' ? 'Photo' : replyingTo.text}
                     </span>
@@ -1129,7 +1180,7 @@ const ChatApp = () => {
                           </div>
                       </div>
                   )}
-                  <form onSubmit={handleSend} style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo || editingMessage || pendingImage ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
+                  <div style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo || editingMessage || pendingImage ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
                     <span className="icon-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)} title="Add Emoji" style={{ color: showEmojiPicker ? '#2563EB' : '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = showEmojiPicker ? '#2563EB' : '#64748B'; }}>
                       <Smile size={20} />
                     </span>
@@ -1161,7 +1212,7 @@ const ChatApp = () => {
                     overflowY: 'auto'
                   }} 
                 />
-                <button id="chat-send-btn" type="submit" disabled style={{ 
+                <button id="chat-send-btn" type="button" onClick={handleSend} style={{ 
                   backgroundColor: '#1E293B', 
                   color: '#64748B', 
                   border: 'none', 
@@ -1177,7 +1228,7 @@ const ChatApp = () => {
                 }}>
                   <SendIcon size={18} style={{ marginLeft: '2px' }} />
                 </button>
-              </form>
+              </div>
               </div>
             </div>
       </div>

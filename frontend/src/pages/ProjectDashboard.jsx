@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useProjectStore } from '../store/projectStore';
-import { FaPlus, FaUsers, FaSignOutAlt, FaTrash } from 'react-icons/fa';
+import { FaPlus, FaUsers, FaSignOutAlt, FaTrash, FaShieldAlt } from 'react-icons/fa';
 
 const ProjectDashboard = () => {
   const { user, logout } = useAuthStore();
-  const { projects, isLoading, fetchProjects, createProject, deleteProject } = useProjectStore();
+  const { projects, isLoading, fetchProjects, createProject, deleteProject, toggleScreenshotProtection } = useProjectStore();
   const navigate = useNavigate();
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
@@ -125,27 +125,43 @@ const ProjectDashboard = () => {
               onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1e293b' }}
             >
               {user?.role === 'ADMIN' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (window.confirm("Are you sure you want to delete this project?")) {
-                      deleteProject(project._id);
-                    }
-                  }}
-                  style={{
-                    position: 'absolute',
-                    top: '16px',
-                    right: '16px',
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    color: '#ef4444',
-                    cursor: 'pointer',
-                    fontSize: '16px'
-                  }}
-                  title="Delete Project"
-                >
-                  <FaTrash />
-                </button>
+                <div style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', gap: '12px' }}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleScreenshotProtection(project._id);
+                    }}
+                    style={{
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      color: project.screenshotProtectionEnabled ? '#34d399' : '#64748b',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      transition: 'color 0.2s'
+                    }}
+                    title={project.screenshotProtectionEnabled ? "Disable Screenshot Protection" : "Enable Screenshot Protection"}
+                  >
+                    <FaShieldAlt />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm("Are you sure you want to delete this project?")) {
+                        deleteProject(project._id);
+                      }
+                    }}
+                    style={{
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      fontSize: '16px'
+                    }}
+                    title="Delete Project"
+                  >
+                    <FaTrash />
+                  </button>
+                </div>
               )}
               
               <div>

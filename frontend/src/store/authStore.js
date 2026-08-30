@@ -32,19 +32,44 @@ export const useAuthStore = create((set, get) => ({
         initKeysPromise = (async () => {
             // Attempt to load existing keypair from localStorage
             try {
-                const storedPrivJwk = localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
-                const storedPubJwk = localStorage.getItem('e2ee_public_key_jwk');
+                const currentUser = get().user;
+                if (!currentUser) return null;
+
+                const userPrivKeyStr = `e2ee_private_key_${currentUser._id}`;
+                const userPubKeyStr = `e2ee_public_key_${currentUser._id}`;
+
+                let storedPrivJwk = localStorage.getItem(userPrivKeyStr);
+                let storedPubJwk = localStorage.getItem(userPubKeyStr);
+
+                // Fallback to seamlessly migrate generic legacy keys to prevent historical data loss
+                if (!storedPrivJwk) {
+                    const legacyPriv = localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
+                    const legacyPub = localStorage.getItem('e2ee_public_key_jwk');
+                    if (legacyPriv && legacyPub) {
+                        localStorage.setItem(userPrivKeyStr, legacyPriv);
+                        localStorage.setItem(userPubKeyStr, legacyPub);
+                        storedPrivJwk = legacyPriv;
+                        storedPubJwk = legacyPub;
+                    }
+                }
+
                 if (storedPrivJwk && storedPubJwk) {
                     const privateKey = await importPrivateKey(storedPrivJwk);
                     set({ myPrivateKey: privateKey, myPublicKeyJwk: storedPubJwk });
                     return { privateKey, publicKeyJwk: storedPubJwk };
                 } else {
-                    // Generate new keypair
+                    // Generate new keypair securely scoped to this exact user
                     const keyPair = await generateKeyPair();
                     const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
                     const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
+
+                    localStorage.setItem(userPrivKeyStr, privKeyJwk);
+                    localStorage.setItem(userPubKeyStr, pubKeyJwk);
+
+                    // Maintain backward compatibility for any generic sync hooks
                     localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, privKeyJwk);
                     localStorage.setItem('e2ee_public_key_jwk', pubKeyJwk);
+
                     set({ myPrivateKey: keyPair.privateKey, myPublicKeyJwk: pubKeyJwk });
                     return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk };
                 }
@@ -97,8 +122,8 @@ export const useAuthStore = create((set, get) => ({
             return true;
         } catch (err) {
             console.error(err);
-            if (err.message === 'Failed to fetch') {
-                throw new Error('Server is waking up (takes ~50 sec). Please wait and try clicking again in a few seconds.');
+            if (err.message === 'Failed to fetch' || err.message.includes('NetworkError')) {
+                throw new Error('Failed to fetch');
             }
             throw err;
         }
@@ -125,8 +150,8 @@ export const useAuthStore = create((set, get) => ({
             return true;
         } catch (err) {
             console.error(err);
-            if (err.message === 'Failed to fetch') {
-                throw new Error('Server is waking up (takes ~50 sec). Please wait and try clicking again in a few seconds.');
+            if (err.message === 'Failed to fetch' || err.message.includes('NetworkError')) {
+                throw new Error('Failed to fetch');
             }
             throw err;
         }

@@ -68,6 +68,24 @@ export const useProjectStore = create((set) => ({
         }
     },
 
+    toggleScreenshotProtection: async (projectId) => {
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/projects/${projectId}/screenshot-protection`, {
+                method: 'PUT',
+                credentials: 'include'
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message);
+
+            set(state => ({
+                projects: state.projects.map(p => p._id === projectId ? data : p)
+            }));
+        } catch (error) {
+            console.error(error);
+            alert("Failed to toggle screenshot protection");
+        }
+    },
+
     updateCollaboratorLastSeen: (userId, lastSeen) => {
         set((state) => ({
             projects: state.projects.map(project => {

@@ -26,7 +26,7 @@ export const getMessages = async (req, res) => {
                 { sender: currentUserId, receiver: userId },
                 { sender: userId, receiver: currentUserId }
             ]
-        }).sort({ createdAt: 1 }).lean();
+        }).sort({ createdAt: 1, _id: 1 }).lean();
 
         res.status(200).json(messages);
     } catch (err) {
@@ -39,21 +39,34 @@ export const getProjectMessages = async (req, res) => {
     try {
         const { projectId } = req.params;
         const limit = Math.min(parseInt(req.query.limit) || 30, 100);
-        const before = req.query.before; // cursor: createdAt ISO string
-        const after = req.query.after;
+        const { before, beforeId, after, afterId } = req.query;
 
-        const query = { projectId };
-        if (before || after) {
-            query.createdAt = {};
-            if (before) query.createdAt.$lt = new Date(before);
-            if (after) query.createdAt.$gt = new Date(after);
+        let query = { projectId };
+        if (before) {
+            if (beforeId) {
+                query.$or = [
+                    { createdAt: { $lt: new Date(before) } },
+                    { createdAt: new Date(before), _id: { $lt: beforeId } }
+                ];
+            } else {
+                query.createdAt = { $lt: new Date(before) };
+            }
+        } else if (after) {
+            if (afterId) {
+                query.$or = [
+                    { createdAt: { $gt: new Date(after) } },
+                    { createdAt: new Date(after), _id: { $gt: afterId } }
+                ];
+            } else {
+                query.createdAt = { $gt: new Date(after) };
+            }
         }
 
         const messages = await Message.find(query)
             .select('sender content iv encryptionVersion messageType replyTo clientMessageId edited deleted reactions status createdAt callMeta')
             .populate('sender', 'name email profilePicture')
             .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } })
-            .sort({ createdAt: -1 })
+            .sort({ createdAt: -1, _id: -1 })
             .limit(limit)
             .lean();
 
@@ -89,7 +102,7 @@ export const recoverRecentMessages = async (req, res) => {
             .select('sender content iv encryptionVersion messageType replyTo clientMessageId edited deleted reactions status createdAt callMeta')
             .populate('sender', 'name email profilePicture')
             .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } })
-            .sort({ createdAt: -1 })
+            .sort({ createdAt: -1, _id: -1 })
             .limit(limit)
             .lean();
 

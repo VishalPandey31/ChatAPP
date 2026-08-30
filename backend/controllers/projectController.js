@@ -47,3 +47,23 @@ export const deleteProject = async (req, res) => {
         res.status(500).json({ message: 'Failed to delete project' });
     }
 };
+
+export const toggleScreenshotProtection = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const project = await Project.findById(id);
+        if (!project) return res.status(404).json({ message: 'Project not found' });
+
+        project.screenshotProtectionEnabled = !project.screenshotProtectionEnabled;
+        await project.save();
+
+        const populatedProject = await Project.findById(id)
+            .populate('admin', 'email name profilePicture lastSeen role publicKey')
+            .populate('collaborators', 'email name profilePicture lastSeen role publicKey');
+
+        res.status(200).json(populatedProject);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Failed to toggle protection' });
+    }
+};

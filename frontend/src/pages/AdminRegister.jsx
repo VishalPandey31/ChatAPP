@@ -11,6 +11,8 @@ const AdminRegister = () => {
     securityQuestionAnswer: ''
   });
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
   const { registerAdmin, user } = useAuthStore();
   const navigate = useNavigate();
 
@@ -24,18 +26,43 @@ const AdminRegister = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isLoading) return;
     setError('');
     
     if (formData.password !== formData.confirmPassword) {
       return setError('Passwords do not match.');
     }
 
-    try {
-      await registerAdmin(formData);
-      navigate('/projects');
-    } catch (err) {
-      setError(err.message || 'Registration failed. Check credentials.');
+    setIsLoading(true);
+    setLoadingMessage('Registering...');
+
+    let attempt = 0;
+    const maxRetries = 5;
+    let delay = 2000;
+
+    while (attempt < maxRetries) {
+      try {
+        await registerAdmin(formData);
+        navigate('/projects');
+        return; // Success, exit
+      } catch (err) {
+        if (err.message === 'Failed to fetch') {
+           attempt++;
+           if (attempt >= maxRetries) {
+             setError('Server is genuinely unreachable. Please check your connection or try again later.');
+             break;
+           }
+           setLoadingMessage(`Waking up backend... (Attempt ${attempt}/${maxRetries} - retrying in ${delay/1000}s)`);
+           await new Promise(resolve => setTimeout(resolve, delay));
+           delay = Math.floor(delay * 1.5);
+        } else {
+           setError(err.message || 'Registration failed. Check credentials.');
+           break;
+        }
+      }
     }
+    setIsLoading(false);
+    setLoadingMessage('');
   };
 
   return (
@@ -99,7 +126,9 @@ const AdminRegister = () => {
             required
           />
 
-          <button type="submit" className="btn btn-secondary" style={{ width: '100%', color: 'var(--accent-color)' }}>Register Admin</button>
+          <button type="submit" className="btn btn-secondary" style={{ width: '100%', color: 'var(--accent-color)', opacity: isLoading ? 0.7 : 1, cursor: isLoading ? 'not-allowed' : 'pointer' }} disabled={isLoading}>
+            {isLoading ? loadingMessage : 'Register Admin'}
+          </button>
         </form>
 
         <div className="auth-links" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>

@@ -54,7 +54,7 @@ app.use(cookieParser());
 // --------------------------------------------------
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minute window
-  max: 200,                   // Max 200 requests per window per IP globally
+  max: 5000,                   // Max 5000 requests per window per IP globally
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Too many requests, please try again later.' }
@@ -98,6 +98,16 @@ socketHandler(io);
 
 app.get("/", (req, res) => {
   res.send("API is running...");
+});
+
+// Lightweight health endpoint for frontend pre-warming and monitoring
+app.get("/api/health", (req, res) => {
+  const dbState = mongoose.connection.readyState; // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
+  res.status(dbState === 1 ? 200 : 503).json({
+    status: dbState === 1 ? "ok" : "degraded",
+    db: dbState === 1 ? "connected" : "unavailable",
+    uptime: Math.floor(process.uptime()),
+  });
 });
 
 const PORT = process.env.PORT || 5000;

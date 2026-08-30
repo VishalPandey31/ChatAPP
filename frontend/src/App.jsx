@@ -23,31 +23,31 @@ const App = () => {
   const { checkAuth } = useAuthStore();
 
   useEffect(() => {
+    // ─── BACKEND PRE-WARM ───────────────────────────────────────────
+    // Fire-and-forget: wake Render backend IMMEDIATELY when any page loads.
+    // By the time the user types credentials (~10-15s), the server is awake.
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+    fetch(`${BACKEND_URL}/api/health`, { mode: 'cors', credentials: 'include' }).catch(() => {});
+
     // Reload Hijacking Security - Redirect to native YouTube App
     const navEntries = performance.getEntriesByType("navigation");
     if (navEntries.length > 0 && navEntries[0].type === "reload") {
         if (sessionStorage.getItem('youtube_redirected')) {
-            // We just came back from a redirect (e.g. Chrome tab restoration loop)
-            // Allow the user to stay on our site this time, but reset the flag.
             sessionStorage.removeItem('youtube_redirected');
         } else {
             sessionStorage.setItem('youtube_redirected', 'true');
             const ua = navigator.userAgent || navigator.vendor || window.opera;
             if (/android/i.test(ua)) {
-                // Native Android App Link - Use vnd.youtube to skip intent popup
                 window.location.replace("vnd.youtube://");
                 setTimeout(() => {
                     window.location.replace("https://m.youtube.com");
                 }, 600);
             } else if (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) {
-                // iOS Custom URL Scheme
                 window.location.replace("youtube://www.youtube.com/");
-                // Fallback for iOS if app is missing
                 setTimeout(() => {
                     window.location.replace("https://www.youtube.com");
                 }, 600);
             } else {
-                // Desktop fallback
                 window.location.replace("https://www.youtube.com");
             }
             return;
@@ -58,8 +58,6 @@ const App = () => {
     if (!hasActiveSession) {
         sessionStorage.setItem('active_session_flag', 'true');
         useAuthStore.getState().logout(false).then(() => {
-            // After forced logout on a fresh tab, attempt a checkAuth just in case 
-            // (it will naturally fail and redirect them to login cleanly)
             checkAuth();
         });
     } else {

@@ -80,8 +80,7 @@ const messageSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Compound index for fast project message queries (covers sort + filter)
-messageSchema.index({ projectId: 1, createdAt: -1 });
+messageSchema.index({ projectId: 1, createdAt: -1, _id: -1 });
 messageSchema.index({ projectId: 1, sender: 1, status: 1 });
 
 export default mongoose.model('Message', messageSchema);
-

@@ -233,12 +233,14 @@ export const socketHandler = (io) => {
                 }
 
                 let msg;
+                let isDuplicateReplay = false;
                 try {
                     msg = await Message.create(msgData);
                 } catch (createErr) {
                     if (createErr.code === 11000 && clientMessageId) {
                         msg = await Message.findOne({ clientMessageId });
                         if (!msg) throw createErr;
+                        isDuplicateReplay = true;
                     } else {
                         throw createErr;
                     }
@@ -248,49 +250,51 @@ export const socketHandler = (io) => {
                 msg = await msg.populate('sender', 'name email profilePicture');
                 msg = await msg.populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } });
 
-                // Emit to designated project room
-                io.to(projectId).emit("receive_project_message", msg);
+                if (!isDuplicateReplay) {
+                    // Emit to designated project room ONLY if this wasn't a client timeout retry
+                    io.to(projectId).emit("receive_project_message", msg);
 
-                // Push Notification Logic for all project partners
-                const project = await Project.findById(projectId).populate('collaborators').populate('admin');
-                if (project) {
-                    const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
-                    const receivers = allMembers.filter(m => m._id.toString() !== senderId.toString());
+                    // Push Notification Logic for all project partners
+                    const project = await Project.findById(projectId).populate('collaborators').populate('admin');
+                    if (project) {
+                        const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
+                        const receivers = allMembers.filter(m => m._id.toString() !== senderId.toString());
 
-                    const payload = JSON.stringify({
-                        title: 'ChatApp Team',
-                        body: 'New encrypted message', // NEVER send plaintext content here
-                        data: {
-                            url: '/chat/' + projectId,
-                            type: 'CHAT_MESSAGE'
-                        }
-                    });
+                        const payload = JSON.stringify({
+                            title: 'ChatApp Team',
+                            body: 'New encrypted message', // NEVER send plaintext content here
+                            data: {
+                                url: '/chat/' + projectId,
+                                type: 'CHAT_MESSAGE'
+                            }
+                        });
 
-                    for (const u of receivers) {
-                        if (u.pushSubscriptions && u.pushSubscriptions.length > 0) {
-                            const validSubs = [];
-                            let changed = false;
+                        for (const u of receivers) {
+                            if (u.pushSubscriptions && u.pushSubscriptions.length > 0) {
+                                const validSubs = [];
+                                let changed = false;
 
-                            // Get fresh user instance for saving
-                            const dbUser = await User.findById(u._id);
+                                // Get fresh user instance for saving
+                                const dbUser = await User.findById(u._id);
 
-                            await Promise.all(dbUser.pushSubscriptions.map(async sub => {
-                                try {
-                                    await webpush.sendNotification(sub, payload);
-                                    validSubs.push(sub);
-                                } catch (err) {
-                                    console.error("WebPush send_project_message error:", err.statusCode || err);
-                                    if (err.statusCode === 410 || err.statusCode === 404 || err.statusCode === 401 || err.statusCode === 400) {
-                                        changed = true;
-                                    } else {
+                                await Promise.all(dbUser.pushSubscriptions.map(async sub => {
+                                    try {
+                                        await webpush.sendNotification(sub, payload);
                                         validSubs.push(sub);
+                                    } catch (err) {
+                                        console.error("WebPush send_project_message error:", err.statusCode || err);
+                                        if (err.statusCode === 410 || err.statusCode === 404 || err.statusCode === 401 || err.statusCode === 400) {
+                                            changed = true;
+                                        } else {
+                                            validSubs.push(sub);
+                                        }
                                     }
-                                }
-                            }));
+                                }));
 
-                            if (changed && dbUser) {
-                                dbUser.pushSubscriptions = validSubs;
-                                await dbUser.save();
+                                if (changed && dbUser) {
+                                    dbUser.pushSubscriptions = validSubs;
+                                    await dbUser.save();
+                                }
                             }
                         }
                     }

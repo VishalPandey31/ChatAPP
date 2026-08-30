@@ -186,8 +186,16 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                 decryptedMsg.iv = null;
                 delete decryptedMsg.originalCiphertext;
             } catch (err) {
-                console.warn('[E2EE] Outer message decryption failed', msg._id, err.message);
-                decryptedMsg.content = '⚠️ Message decryption failed';
+                console.warn('[E2EE/Crypto] Strict Decryption Failure:', {
+                    cause: err.message || 'Signature mismatch / Wrong Key',
+                    messageId: msg._id,
+                    senderId: typeof msg.sender === 'object' ? msg.sender?._id?.toString() : msg.sender?.toString(),
+                    projectId: msg.projectId,
+                    iv: msg.iv ? 'present' : 'missing',
+                    ciphertextLength: (msg.originalCiphertext || msg.content) ? (msg.originalCiphertext || msg.content).length : 0,
+                    algorithm: 'AES-GCM 256'
+                });
+                decryptedMsg.content = '⚠️ Message locked to a rotated/legacy key';
                 // WARNING: We must NOT delete the shared key cache here, otherwise legacy unrecoverable 
                 // messages will trigger a severe API request flood for subsequent messages.
             }
@@ -205,11 +213,16 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                     messageType: decryptedMsg.replyTo.messageType || 'TEXT'
                 };
             } catch (replyErr) {
-                console.warn('[E2EE] Nested reply decryption failed', replyErr.message);
+                console.warn('[E2EE/Crypto] Nested reply decryption failed:', {
+                    cause: replyErr.message || 'Signature mismatch / Wrong Key',
+                    messageId: msg._id,
+                    replyToId: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
+                    algorithm: 'AES-GCM 256'
+                });
                 decryptedMsg.replyTo = {
                     id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
                     senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
-                    text: '⚠️ Message decryption failed',
+                    text: '⚠️ Message locked to a rotated/legacy key',
                     messageType: decryptedMsg.replyTo.messageType || 'TEXT'
                 };
             }
@@ -347,8 +360,18 @@ export const useChatStore = create(
                         }
                     });
 
+                    // Enforce deterministic sorting by createdAt and _id as fallback
+                    newMessages.sort((a, b) => {
+                        const dateDiff = new Date(a.createdAt) - new Date(b.createdAt);
+                        if (dateDiff === 0) {
+                            if (!a._id || !b._id) return 0;
+                            return a._id.toString().localeCompare(b._id.toString());
+                        }
+                        return dateDiff;
+                    });
+
                     set(state => ({
-                        messages: newMessages,
+                        messages: state.currentProjectId === projectId ? newMessages : state.messages,
                         messagesCache: { ...state.messagesCache, [projectId]: newMessages },
                         isMessagesLoading: false
                     }));
@@ -362,10 +385,12 @@ export const useChatStore = create(
                 const currentMessages = get().messagesCache[projectId] || get().messages;
                 if (!currentMessages || currentMessages.length === 0) return;
 
-                const oldestMessageDate = currentMessages[0].createdAt;
+                const oldestMessage = currentMessages[0];
+                const oldestMessageDate = oldestMessage.createdAt;
+                const oldestMessageId = oldestMessage._id || oldestMessage.id;
 
                 try {
-                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}?before=${oldestMessageDate}`, { credentials: 'include' });
+                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}?before=${oldestMessageDate}&beforeId=${oldestMessageId}`, { credentials: 'include' });
                     if (!res.ok) return;
                     const data = await res.json();
 
@@ -388,8 +413,27 @@ export const useChatStore = create(
                     );
 
                     set(state => {
-                        const existingMsgs = state.messagesCache[projectId] || state.messages;
-                        const newMessages = [...decryptedMessages, ...existingMsgs];
+                        const existingMsgs = state.messagesCache[projectId] || (state.currentProjectId === projectId ? state.messages : []);
+
+                        // Carefully merge avoiding any duplicates
+                        let mergedMap = new Map();
+                        existingMsgs.forEach(m => mergedMap.set(m._id || m.clientMessageId, m));
+                        decryptedMessages.forEach(m => {
+                            if (!mergedMap.has(m._id || m.clientMessageId)) {
+                                mergedMap.set(m._id || m.clientMessageId, m);
+                            }
+                        });
+
+                        const newMessages = Array.from(mergedMap.values());
+                        newMessages.sort((a, b) => {
+                            const dateDiff = new Date(a.createdAt) - new Date(b.createdAt);
+                            if (dateDiff === 0) {
+                                if (!a._id || !b._id) return 0;
+                                return a._id.toString().localeCompare(b._id.toString());
+                            }
+                            return dateDiff;
+                        });
+
                         return {
                             messages: state.currentProjectId === projectId ? newMessages : state.messages,
                             messagesCache: { ...state.messagesCache, [projectId]: newMessages },
@@ -452,7 +496,14 @@ export const useChatStore = create(
                             }
                         });
 
-                        newMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                        newMessages.sort((a, b) => {
+                            const dateDiff = new Date(a.createdAt) - new Date(b.createdAt);
+                            if (dateDiff === 0) {
+                                if (!a._id || !b._id) return 0;
+                                return a._id.toString().localeCompare(b._id.toString());
+                            }
+                            return dateDiff;
+                        });
 
                         return {
                             messages: state.currentProjectId === projectId ? newMessages : state.messages,
@@ -492,7 +543,7 @@ export const useChatStore = create(
                             let recoveredCount = 0;
 
                             decryptedMessages.forEach(dec => {
-                                const existsId = newMessages.find(m => m._id === dec._id);
+                                const existsId = newMessages.find(m => m._id === dec._id || (dec.clientMessageId && m.clientMessageId === dec.clientMessageId));
                                 if (!existsId) {
                                     newMessages.push(dec);
                                     recoveredCount++;
@@ -500,7 +551,14 @@ export const useChatStore = create(
                             });
 
                             if (recoveredCount > 0) {
-                                newMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                                newMessages.sort((a, b) => {
+                                    const dateDiff = new Date(a.createdAt) - new Date(b.createdAt);
+                                    if (dateDiff === 0) {
+                                        if (!a._id || !b._id) return 0;
+                                        return a._id.toString().localeCompare(b._id.toString());
+                                    }
+                                    return dateDiff;
+                                });
                             }
 
                             resolve(recoveredCount);
@@ -575,147 +633,163 @@ export const useChatStore = create(
             },
 
             sendProjectMessage: async (projectId, content, replyToId = null, messageType = 'TEXT') => {
-                const socket = useAuthStore.getState().socket;
-                if (!socket) return;
+                return new Promise((resolve, reject) => {
+                    const socket = useAuthStore.getState().socket;
+                    if (!socket) return reject(new Error("No active socket connection"));
 
-                const clientMessageId = `msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-                const currentUser = useAuthStore.getState().user;
+                    const clientMessageId = `msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+                    const currentUser = useAuthStore.getState().user;
 
-                // 1. Instantly construct and push Optimistic UI WITHOUT waiting for encryption
-                const optimisticMsg = {
-                    _id: clientMessageId,
-                    clientMessageId,
-                    sender: currentUser,
-                    projectId,
-                    content,
-                    iv: null,
-                    encryptionVersion: 0,
-                    messageType,
-                    status: 'SENDING',
-                    createdAt: new Date().toISOString()
-                };
-
-                if (replyToId) {
-                    const replyMsg = get().messages.find(m => (m._id?.toString?.() || m._id) === (replyToId?.toString?.() || replyToId));
-                    if (replyMsg) {
-                        optimisticMsg.replyTo = {
-                            id: replyMsg._id || replyMsg.id,
-                            senderId: typeof replyMsg.sender === 'object' ? (replyMsg.sender._id || replyMsg.sender.id) : replyMsg.sender,
-                            text: replyMsg.content || replyMsg.text,
-                            messageType: replyMsg.messageType || 'TEXT'
-                        };
-                    }
-                }
-
-                // Inject synchronously to the UI cache so rendering is literally zero latency
-                set(state => {
-                    const newMessages = [...state.messages, optimisticMsg];
-                    return {
-                        messages: newMessages,
-                        messagesCache: { ...state.messagesCache, [projectId]: newMessages }
+                    // 1. Instantly construct and push Optimistic UI WITHOUT waiting for encryption
+                    const optimisticMsg = {
+                        _id: clientMessageId,
+                        clientMessageId,
+                        sender: currentUser,
+                        projectId,
+                        content,
+                        iv: null,
+                        encryptionVersion: 0,
+                        messageType,
+                        status: 'SENDING',
+                        createdAt: new Date().toISOString()
                     };
+
+                    if (replyToId) {
+                        const replyMsg = get().messages.find(m => (m._id?.toString?.() || m._id) === (replyToId?.toString?.() || replyToId));
+                        if (replyMsg) {
+                            optimisticMsg.replyTo = {
+                                id: replyMsg._id || replyMsg.id,
+                                senderId: typeof replyMsg.sender === 'object' ? (replyMsg.sender._id || replyMsg.sender.id) : replyMsg.sender,
+                                text: replyMsg.content || replyMsg.text,
+                                messageType: replyMsg.messageType || 'TEXT'
+                            };
+                        }
+                    }
+
+                    // Inject synchronously to the UI cache so rendering is literally zero latency
+                    set(state => {
+                        const newMessages = [...state.messages, optimisticMsg];
+                        return {
+                            messages: newMessages,
+                            messagesCache: { ...state.messagesCache, [projectId]: newMessages }
+                        };
+                    });
+
+                    // 2. Process Crypto and Network payload asynchronously
+                    (async () => {
+                        let finalContent = content;
+                        let iv = null;
+                        let encryptionVersion = 0;
+
+                        if (messageType === 'TEXT' && content && typeof content === 'string') {
+                            const { activeRecipientId } = get();
+                            if (activeRecipientId) {
+                                try {
+                                    const sharedKey = await getSharedSecret(activeRecipientId);
+                                    if (sharedKey) {
+                                        const encrypted = await encryptMessage(content, sharedKey);
+                                        finalContent = encrypted.ciphertext;
+                                        iv = encrypted.iv;
+                                        encryptionVersion = 1;
+                                    } else {
+                                        return reject(new Error("E2EE Secret Key unresolvable. Message halted to prevent plaintext transmission."));
+                                    }
+                                } catch (err) {
+                                    return reject(new Error("Encryption algorithm failed. Message halted to prevent plaintext transmission."));
+                                }
+                            }
+                        }
+
+                        const payload = {
+                            senderId: currentUser._id,
+                            projectId,
+                            content: finalContent,
+                            iv,
+                            encryptionVersion,
+                            messageType,
+                            clientMessageId
+                        };
+                        if (replyToId) payload.replyTo = replyToId;
+
+                        // Safely queue the background emission
+                        set(state => {
+                            const newPending = [...(state.pendingMessages || [])];
+                            if (!newPending.some(p => p.payload.clientMessageId === clientMessageId)) {
+                                newPending.push({ payload, optimisticMsg });
+                            }
+                            return { pendingMessages: newPending };
+                        });
+
+                        // Smart emission with zombie socket timeout
+                        if (!socket.connected) {
+                            console.warn('[Lifecycle] Socket disconnected naturally, queued pending msg and forcing network connect');
+                            socket.connect();
+                            return reject(new Error("Socket disconnected. Message queued for when connection restores."));
+                        }
+
+                        socket.timeout(5000).emit("send_project_message", payload, (err, response) => {
+                            if (err) {
+                                console.warn("[Lifecycle] Zombie socket detected on emit timeout. Enforcing reconnect.", err);
+                                socket.disconnect();
+                                socket.connect();
+                                reject(new Error("Message send timeout"));
+                            } else if (response && response.status === 'ok') {
+                                // Wipe from pending list and transition SENDING -> SENT
+                                set(state => {
+                                    const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                                    const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'SENT' } : m);
+                                    const newCache = { ...state.messagesCache };
+                                    newCache[projectId] = newMsgs;
+                                    return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                                });
+                                resolve(response);
+                            } else {
+                                reject(new Error(response?.message || "Failed to send message."));
+                            }
+                        });
+                    })();
                 });
+            },
 
-                // 2. Process Crypto and Network payload asynchronously
-                (async () => {
-                    let finalContent = content;
-                    let iv = null;
-                    let encryptionVersion = 0;
+            editProjectMessage: async (messageId, projectId, newContent) => {
+                return new Promise((resolve, reject) => {
+                    const socket = useAuthStore.getState().socket;
+                    if (!socket) return reject(new Error("No active socket connection"));
+                    const currentUser = useAuthStore.getState().user;
 
-                    if (messageType === 'TEXT' && content && typeof content === 'string') {
+                    (async () => {
+                        let finalContent = newContent;
+                        let newIv = null;
+                        let encryptionVersion = 0;
+
                         const { activeRecipientId } = get();
                         if (activeRecipientId) {
                             try {
                                 const sharedKey = await getSharedSecret(activeRecipientId);
                                 if (sharedKey) {
-                                    const encrypted = await encryptMessage(content, sharedKey);
+                                    const encrypted = await encryptMessage(newContent, sharedKey);
                                     finalContent = encrypted.ciphertext;
-                                    iv = encrypted.iv;
+                                    newIv = encrypted.iv;
                                     encryptionVersion = 1;
                                 }
                             } catch (err) {
-                                console.warn('[E2EE] Encryption failed, sending as plaintext:', err);
+                                console.warn('[E2EE] Edit encryption failed', err);
                             }
                         }
-                    }
 
-                    const payload = {
-                        senderId: currentUser._id,
-                        projectId,
-                        content: finalContent,
-                        iv,
-                        encryptionVersion,
-                        messageType,
-                        clientMessageId
-                    };
-                    if (replyToId) payload.replyTo = replyToId;
-
-                    // Safely queue the background emission
-                    set(state => {
-                        const newPending = [...(state.pendingMessages || [])];
-                        if (!newPending.some(p => p.payload.clientMessageId === clientMessageId)) {
-                            newPending.push({ payload, optimisticMsg });
-                        }
-                        return { pendingMessages: newPending };
-                    });
-
-                    // Smart emission with zombie socket timeout
-                    if (!socket.connected) {
-                        console.warn('[Lifecycle] Socket disconnected naturally, queued pending msg and forcing network connect');
-                        socket.connect();
-                        return;
-                    }
-                    socket.timeout(5000).emit("send_project_message", payload, (err, response) => {
-                        if (err) {
-                            console.warn("[Lifecycle] Zombie socket detected on emit timeout. Enforcing reconnect.", err);
-                            // Payload already stored in pendingMessages, forcefully recycle connection
-                            socket.disconnect();
-                            socket.connect();
-                        } else if (response && response.status === 'ok') {
-                            // Wipe from pending list and transition SENDING -> SENT
-                            set(state => {
-                                const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
-                                const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'SENT' } : m);
-                                const newCache = { ...state.messagesCache };
-                                newCache[projectId] = newMsgs;
-                                return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
-                            });
-                        }
-                    });
-                })();
-            },
-
-            editProjectMessage: async (messageId, projectId, newContent) => {
-                const socket = useAuthStore.getState().socket;
-                if (!socket) return;
-                const currentUser = useAuthStore.getState().user;
-
-                let finalContent = newContent;
-                let newIv = null;
-                let encryptionVersion = 0;
-
-                const { activeRecipientId } = get();
-                if (activeRecipientId) {
-                    try {
-                        const sharedKey = await getSharedSecret(activeRecipientId);
-                        if (sharedKey) {
-                            const encrypted = await encryptMessage(newContent, sharedKey);
-                            finalContent = encrypted.ciphertext;
-                            newIv = encrypted.iv;
-                            encryptionVersion = 1;
-                        }
-                    } catch (err) {
-                        console.warn('[E2EE] Edit encryption failed', err);
-                    }
-                }
-
-                socket.emit("edit_project_message", {
-                    messageId,
-                    senderId: currentUser._id,
-                    newContent: finalContent,
-                    newIv,
-                    encryptionVersion,
-                    projectId
+                        socket.emit("edit_project_message", {
+                            messageId,
+                            senderId: currentUser._id,
+                            newContent: finalContent,
+                            newIv,
+                            encryptionVersion,
+                            projectId
+                        }, (err, response) => {
+                            if (err) reject(new Error("Timeout editing message"));
+                            else if (response && response.status === 'error') reject(new Error(response.message));
+                            else resolve(response);
+                        });
+                    })();
                 });
             },
 
@@ -755,23 +829,35 @@ export const useChatStore = create(
                 }
 
                 set((state) => {
-                    let newMessages;
-                    if (decryptedMsg.clientMessageId) {
-                        const existingIndex = state.messages.findIndex(m => m.clientMessageId === decryptedMsg.clientMessageId);
-                        if (existingIndex > -1) {
-                            newMessages = [...state.messages];
-                            newMessages[existingIndex] = decryptedMsg;
+                    const roomProjectId = decryptedMsg.projectId;
+                    if (!roomProjectId) return state; // Ignore invalid messages
+
+                    const currentMsgs = state.messagesCache[roomProjectId] || (state.currentProjectId === roomProjectId ? state.messages : []);
+                    let newMessages = [...currentMsgs];
+
+                    let foundAndUpdated = false;
+
+                    // Safe deduplication loop
+                    for (let i = 0; i < newMessages.length; i++) {
+                        const m = newMessages[i];
+                        if (decryptedMsg.clientMessageId && m.clientMessageId === decryptedMsg.clientMessageId) {
+                            newMessages[i] = decryptedMsg;
+                            foundAndUpdated = true;
+                            break;
+                        }
+                        if (m._id === decryptedMsg._id) {
+                            foundAndUpdated = true;
+                            break;
                         }
                     }
-                    if (!newMessages) {
-                        const dupIndex = state.messages.findIndex(m => m._id === decryptedMsg._id);
-                        if (dupIndex > -1) return state;
-                        newMessages = [...state.messages, decryptedMsg];
+
+                    if (!foundAndUpdated) {
+                        newMessages.push(decryptedMsg);
                     }
 
                     return {
-                        messages: newMessages,
-                        messagesCache: state.currentProjectId ? { ...state.messagesCache, [state.currentProjectId]: newMessages } : state.messagesCache
+                        messages: state.currentProjectId === roomProjectId ? newMessages : state.messages,
+                        messagesCache: { ...state.messagesCache, [roomProjectId]: newMessages }
                     };
                 });
             },

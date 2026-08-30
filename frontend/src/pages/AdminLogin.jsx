@@ -6,24 +6,58 @@ const AdminLogin = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
   const { login, user } = useAuthStore();
   const navigate = useNavigate();
 
+  // Pre-warm: fire a health ping when this page mounts (supplements App.jsx global warm-up)
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
   React.useEffect(() => {
-    if (user) navigate('/projects');
+    if (user) { navigate('/projects'); return; }
+    fetch(`${BACKEND_URL}/api/health`, { mode: 'cors', credentials: 'include' }).catch(() => {});
   }, [user, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isLoading) return;
     setError('');
-    try {
-      await login({ email, password }, true);
-      // Prefetch projects while navigating so dashboard loads instantly
-      import('../store/projectStore').then(m => m.useProjectStore.getState().fetchProjects());
-      navigate('/projects');
-    } catch (err) {
-      setError(err.message || 'Admin login failed. Please check credentials.');
+    setIsLoading(true);
+    setLoadingMessage('Authenticating...');
+    
+    // Render free-tier cold start takes up to ~50s.
+    // 8 attempts with 3s base × 1.4x backoff = ~70s total coverage.
+    let attempt = 0;
+    const maxRetries = 8;
+    let delay = 3000;
+
+    while (attempt < maxRetries) {
+      try {
+        await login({ email, password }, true);
+        import('../store/projectStore').then(m => m.useProjectStore.getState().fetchProjects());
+        navigate('/projects');
+        return; // Success, exit
+      } catch (err) {
+        const isNetworkError = err.message === 'Failed to fetch' || err.message?.includes('NetworkError');
+        if (isNetworkError) {
+           attempt++;
+           if (attempt >= maxRetries) {
+             setError('Server is genuinely unreachable. Please check your connection or try again later.');
+             break;
+           }
+           const secs = Math.ceil(delay / 1000);
+           setLoadingMessage(`Server is waking up... (Attempt ${attempt}/${maxRetries} — retrying in ${secs}s)`);
+           await new Promise(resolve => setTimeout(resolve, delay));
+           delay = Math.floor(delay * 1.4);
+        } else {
+           setError(err.message || 'Admin login failed. Please check credentials.');
+           break;
+        }
+      }
     }
+    
+    setIsLoading(false);
+    setLoadingMessage('');
   };
 
   return (
@@ -53,7 +87,9 @@ const AdminLogin = () => {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-          <button type="submit" className="btn btn-secondary" style={{ width: '100%', color: 'var(--accent-color)' }}>Access Dashboard</button>
+          <button type="submit" className="btn btn-secondary" style={{ width: '100%', color: 'var(--accent-color)', opacity: isLoading ? 0.7 : 1, cursor: isLoading ? 'not-allowed' : 'pointer' }} disabled={isLoading}>
+            {isLoading ? loadingMessage : 'Access Dashboard'}
+          </button>
         </form>
 
         <div className="auth-links" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
