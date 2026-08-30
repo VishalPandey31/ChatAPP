@@ -1,5 +1,6 @@
 import Chat from '../models/Chat.js';
 import Message from '../models/Message.js';
+import Project from '../models/Project.js';
 
 export const getUserChats = async (req, res) => {
     try {
@@ -40,6 +41,14 @@ export const getProjectMessages = async (req, res) => {
         const { projectId } = req.params;
         const limit = Math.min(parseInt(req.query.limit) || 30, 100);
         const { before, beforeId, after, afterId } = req.query;
+
+        // Strict Authorized Isolation: Must be a member of the project
+        const project = await Project.findById(projectId);
+        if (!project) return res.status(404).json({ message: 'Project not found' });
+
+        const isMember = project.admin.toString() === req.user._id.toString() ||
+            project.collaborators.some(id => id.toString() === req.user._id.toString());
+        if (!isMember) return res.status(403).json({ message: 'Unauthorized project access' });
 
         let query = { projectId };
         if (before) {
@@ -83,6 +92,14 @@ export const getProjectMessages = async (req, res) => {
 export const clearProjectChat = async (req, res) => {
     try {
         const { projectId } = req.params;
+
+        // Strict Authorization: Only project admin can wipe history
+        const project = await Project.findById(projectId);
+        if (!project) return res.status(404).json({ message: 'Project not found' });
+        if (project.admin.toString() !== req.user._id.toString()) {
+            return res.status(403).json({ message: 'Only project administrators can wipe history' });
+        }
+
         await Message.deleteMany({ projectId });
         res.status(200).json({ message: 'Chat cleared successfully' });
     } catch (err) {
@@ -97,6 +114,14 @@ export const recoverRecentMessages = async (req, res) => {
         const validLimits = [50, 100, 250, 500];
         let limit = parseInt(req.query.limit);
         if (!validLimits.includes(limit)) limit = 100;
+
+        // Strict Authorized Isolation: Must be a member of the project
+        const project = await Project.findById(projectId);
+        if (!project) return res.status(404).json({ message: 'Project not found' });
+
+        const isMember = project.admin.toString() === req.user._id.toString() ||
+            project.collaborators.some(id => id.toString() === req.user._id.toString());
+        if (!isMember) return res.status(403).json({ message: 'Unauthorized project recovery' });
 
         const messages = await Message.find({ projectId })
             .select('sender content iv encryptionVersion messageType replyTo clientMessageId edited deleted reactions status createdAt callMeta')

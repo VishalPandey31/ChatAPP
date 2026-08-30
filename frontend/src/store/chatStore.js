@@ -163,13 +163,13 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         if (!sharedKey) {
             if (outerNeedsDecryption) {
                 decryptedMsg.originalCiphertext = msg.originalCiphertext || msg.content;
-                decryptedMsg.content = '🔒 E2EE message (key not yet available)';
+                decryptedMsg.content = '🔒 Encrypted (Missing Sender Key)';
             }
             if (innerNeedsDecryption) {
                 decryptedMsg.replyTo = {
                     ...decryptedMsg.replyTo,
                     originalCiphertext: msg.replyTo.originalCiphertext || msg.replyTo.content,
-                    content: '🔒 E2EE message (key not yet available)'
+                    content: '🔒 Encrypted (Missing Sender Key)'
                 };
             }
             return decryptedMsg;
@@ -195,7 +195,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                     ciphertextLength: (msg.originalCiphertext || msg.content) ? (msg.originalCiphertext || msg.content).length : 0,
                     algorithm: 'AES-GCM 256'
                 });
-                decryptedMsg.content = '⚠️ Message locked to a rotated/legacy key';
+                decryptedMsg.content = '🔒 Encrypted (Key Rotated)';
                 // WARNING: We must NOT delete the shared key cache here, otherwise legacy unrecoverable 
                 // messages will trigger a severe API request flood for subsequent messages.
             }
@@ -222,7 +222,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                 decryptedMsg.replyTo = {
                     id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
                     senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
-                    text: '⚠️ Message locked to a rotated/legacy key',
+                    text: '🔒 Encrypted (Key Rotated)',
                     messageType: decryptedMsg.replyTo.messageType || 'TEXT'
                 };
             }
@@ -239,11 +239,11 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         return decryptedMsg;
     } catch (err) {
         // Absolute fallback for unexpected crypto initialization errors
-        if (outerNeedsDecryption) decryptedMsg.content = '⚠️ Message decryption failed';
+        if (outerNeedsDecryption) decryptedMsg.content = '🔒 Encryption Failed';
         if (innerNeedsDecryption) decryptedMsg.replyTo = {
             id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
             senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
-            text: '⚠️ Message decryption failed',
+            text: '🔒 Encryption Failed',
             messageType: decryptedMsg.replyTo.messageType || 'TEXT'
         };
         return decryptedMsg;
