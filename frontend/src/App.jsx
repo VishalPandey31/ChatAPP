@@ -29,40 +29,10 @@ const App = () => {
     const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
     fetch(`${BACKEND_URL}/api/health`, { mode: 'cors', credentials: 'include' }).catch(() => {});
 
-    // Reload Hijacking Security - Redirect to native YouTube App
-    const navEntries = performance.getEntriesByType("navigation");
-    if (navEntries.length > 0 && navEntries[0].type === "reload") {
-        if (sessionStorage.getItem('youtube_redirected')) {
-            sessionStorage.removeItem('youtube_redirected');
-        } else {
-            sessionStorage.setItem('youtube_redirected', 'true');
-            const ua = navigator.userAgent || navigator.vendor || window.opera;
-            if (/android/i.test(ua)) {
-                window.location.replace("vnd.youtube://");
-                setTimeout(() => {
-                    window.location.replace("https://m.youtube.com");
-                }, 600);
-            } else if (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) {
-                window.location.replace("youtube://www.youtube.com/");
-                setTimeout(() => {
-                    window.location.replace("https://www.youtube.com");
-                }, 600);
-            } else {
-                window.location.replace("https://www.youtube.com");
-            }
-            return;
-        }
-    }
-
-    const hasActiveSession = sessionStorage.getItem('active_session_flag');
-    if (!hasActiveSession) {
-        sessionStorage.setItem('active_session_flag', 'true');
-        useAuthStore.getState().logout(false).then(() => {
-            checkAuth();
-        });
-    } else {
-        checkAuth();
-    }
+    // Validate the persistent httpOnly session cookie on every page load/refresh.
+    // If no valid session exists, checkAuth sets user: null and ProtectedRoute
+    // redirects to /login automatically.
+    checkAuth();
 
     // Globally sync Background Service Worker push connection on boot if previously granted
     if (window.Notification && window.Notification.permission === 'granted') {

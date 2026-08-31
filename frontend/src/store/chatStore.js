@@ -145,7 +145,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
             }
         }
 
-        // Final ultimate fallback: if still null, scan the entire messages cache for someone else
+        // Project fallback 1: scan the entire messages cache for someone else
         if (!recipientId && msg.projectId) {
             const cachedMsgs = useChatStore.getState().messagesCache[msg.projectId] || useChatStore.getState().messages || [];
             const otherMsg = cachedMsgs.find(m => {
@@ -154,6 +154,27 @@ async function decryptSingleMessage(msg, activeRecipientId) {
             });
             if (otherMsg) {
                 recipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+            }
+        }
+
+        // Project fallback 2 (Ultimate): look up the project directly in projectStore to find the other member
+        if (!recipientId && msg.projectId) {
+            // Dynamically import to prevent circular dependency if needed, but it's usually safe here
+            try {
+                const { useProjectStore } = await import('./projectStore');
+                const project = useProjectStore.getState().projects.find(p => p._id === msg.projectId);
+                if (project) {
+                    const others = [project.admin, ...(project.collaborators || [])].filter(m => {
+                        if (!m) return false;
+                        const mId = (typeof m === 'object' ? m._id : m).toString();
+                        return mId !== myId;
+                    });
+                    if (others.length > 0) {
+                        recipientId = (typeof others[0] === 'object' ? others[0]._id : others[0]).toString();
+                    }
+                }
+            } catch (e) {
+                console.warn('[E2EE] Could not load projectStore for recipientId fallback', e);
             }
         }
 
@@ -189,15 +210,13 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                 console.warn('[E2EE/Crypto] Strict Decryption Failure:', {
                     cause: err.message || 'Signature mismatch / Wrong Key',
                     messageId: msg._id,
-                    senderId: typeof msg.sender === 'object' ? msg.sender?._id?.toString() : msg.sender?.toString(),
+                    senderId,
                     projectId: msg.projectId,
-                    iv: msg.iv ? 'present' : 'missing',
-                    ciphertextLength: (msg.originalCiphertext || msg.content) ? (msg.originalCiphertext || msg.content).length : 0,
                     algorithm: 'AES-GCM 256'
                 });
+                // DO NOT delete originalCiphertext here. It allows retries/recovery later!
+                decryptedMsg.originalCiphertext = msg.originalCiphertext || msg.content;
                 decryptedMsg.content = '🔒 Encrypted (Key Rotated)';
-                // WARNING: We must NOT delete the shared key cache here, otherwise legacy unrecoverable 
-                // messages will trigger a severe API request flood for subsequent messages.
             }
         }
 
@@ -213,15 +232,11 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                     messageType: decryptedMsg.replyTo.messageType || 'TEXT'
                 };
             } catch (replyErr) {
-                console.warn('[E2EE/Crypto] Nested reply decryption failed:', {
-                    cause: replyErr.message || 'Signature mismatch / Wrong Key',
-                    messageId: msg._id,
-                    replyToId: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
-                    algorithm: 'AES-GCM 256'
-                });
+                console.warn('[E2EE/Crypto] Nested reply decryption failed');
                 decryptedMsg.replyTo = {
                     id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
                     senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
+                    originalCiphertext: decryptedMsg.replyTo.originalCiphertext || decryptedMsg.replyTo.content,
                     text: '🔒 Encrypted (Key Rotated)',
                     messageType: decryptedMsg.replyTo.messageType || 'TEXT'
                 };

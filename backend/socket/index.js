@@ -69,9 +69,12 @@ export const socketHandler = (io) => {
             // Find all admins
             const admins = await User.find({ role: 'ADMIN' });
             admins.forEach(admin => {
-                const adminSocketId = userSockets.get(admin._id.toString());
-                if (adminSocketId) {
-                    io.to(adminSocketId).emit("new_approval_request", data);
+                const adminSocketIds = userSockets.get(admin._id.toString());
+                if (adminSocketIds) {
+                    // adminSocketIds is a Set — iterate each socket ID
+                    adminSocketIds.forEach(socketId => {
+                        io.to(socketId).emit("new_approval_request", data);
+                    });
                 }
             });
         });
