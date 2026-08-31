@@ -201,3 +201,38 @@ export const getPublicKey = async (req, res) => {
         res.status(500).json({ message: 'Server Error' });
     }
 };
+
+// @desc Upload Zero-Knowledge Encrypted Private Key Ring Backup
+export const uploadEncryptedKeyRing = async (req, res) => {
+    try {
+        const { encryptedKeyRing, encryptedKeyRingIv } = req.body;
+        if (!encryptedKeyRing || !encryptedKeyRingIv) {
+            return res.status(400).json({ message: 'Missing encrypted key ring data.' });
+        }
+        await User.findByIdAndUpdate(req.user._id, {
+            encryptedKeyRing,
+            encryptedKeyRingIv
+        });
+        res.status(200).json({ message: 'Encrypted Key Ring backup successful.' });
+    } catch (error) {
+        console.error('Backup upload error:', error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc Fetch Zero-Knowledge Encrypted Private Key Ring Backup
+export const getEncryptedKeyRing = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id).select('encryptedKeyRing encryptedKeyRingIv');
+        if (!user || !user.encryptedKeyRing) {
+            return res.status(404).json({ message: 'No backup found.' });
+        }
+        res.status(200).json({
+            encryptedKeyRing: user.encryptedKeyRing,
+            encryptedKeyRingIv: user.encryptedKeyRingIv
+        });
+    } catch (error) {
+        console.error('Backup fetch error:', error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};

@@ -144,6 +144,32 @@ export async function decryptMessage(ciphertextBase64, ivBase64, sharedKey) {
     }
 }
 
+/**
+ * Derive a 256-bit AES-GCM Key from a password and salt using PBKDF2
+ */
+export async function deriveBackupKey(password, salt) {
+    const enc = new TextEncoder();
+    const keyMaterial = await window.crypto.subtle.importKey(
+        "raw",
+        enc.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveBits", "deriveKey"]
+    );
+    return await window.crypto.subtle.deriveKey(
+        {
+            name: "PBKDF2",
+            salt: enc.encode(salt), // usually the user's email for stability
+            iterations: 100000,
+            hash: "SHA-256"
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+    );
+}
+
 // Helpers
 export function generateKeyId() {
     return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);

@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
 import {
     importPublicKey,
+    importPrivateKey,
     deriveSharedSecret,
     encryptMessage,
     decryptMessage,
@@ -318,6 +319,51 @@ async function decryptSingleMessage(msg, activeRecipientId) {
 }
 
 // ─────────────────────────────────────────────────────────
+// Message Reconciliation Engine
+// ─────────────────────────────────────────────────────────
+/**
+ * Safely merges two message arrays guaranteeing no duplicates.
+ * Prioritizes the incoming Server response but cleanly garbage-collects
+ * local optimistic pending messages once their real _id arrives.
+ */
+function mergeMessages(existingMsgs = [], incomingMsgs = []) {
+    const map = new Map();
+
+    // Load existing messages 
+    existingMsgs.forEach(m => {
+        const key = m._id && !m._id.toString().startsWith('msg-') ? m._id.toString() : (m.clientMessageId || m._id.toString());
+        map.set(key, m);
+    });
+
+    // Merge incoming messages exactly overlaying matching keys
+    incomingMsgs.forEach(m => {
+        const key = m._id && !m._id.toString().startsWith('msg-') ? m._id.toString() : (m.clientMessageId || m._id.toString());
+
+        // If the incoming message finally has a REAL database ID, purge any matching optimistic ghost key
+        if (m.clientMessageId && m._id && !m._id.toString().startsWith('msg-')) {
+            if (map.has(m.clientMessageId)) {
+                map.delete(m.clientMessageId);
+            }
+        }
+
+        map.set(key, m); // Upsert
+    });
+
+    const result = Array.from(map.values());
+    // Strict deterministic chronological sorting
+    result.sort((a, b) => {
+        const dateDiff = new Date(a.createdAt) - new Date(b.createdAt);
+        if (dateDiff === 0) {
+            if (!a._id || !b._id) return 0;
+            return a._id.toString().localeCompare(b._id.toString());
+        }
+        return dateDiff;
+    });
+
+    return result;
+}
+
+// ─────────────────────────────────────────────────────────
 // Zustand Store (Persisted)
 // ─────────────────────────────────────────────────────────
 export const useChatStore = create(
@@ -423,26 +469,12 @@ export const useChatStore = create(
                         data.map(msg => decryptSingleMessage(msg, activeRecipientId))
                     );
 
-                    // Preserve pending optimistic messages correctly to append
-                    const currentMsgs = get().messages;
-                    const optimisticPending = currentMsgs.filter(m => m.status === 'SENDING' && m.projectId === projectId);
+                    // Preserve pending optimistic messages that haven't sent yet
+                    const currentMsgs = get().messagesCache[projectId] || (get().currentProjectId === projectId ? get().messages : []);
+                    const pendingMsgs = currentMsgs.filter(m => m.status === 'SENDING' || m.status === 'FAILED');
 
-                    const newMessages = [...decryptedMessages];
-                    optimisticPending.forEach(opt => {
-                        if (!newMessages.find(m => m.clientMessageId === opt.clientMessageId)) {
-                            newMessages.push(opt);
-                        }
-                    });
-
-                    // Enforce deterministic sorting by createdAt and _id as fallback
-                    newMessages.sort((a, b) => {
-                        const dateDiff = new Date(a.createdAt) - new Date(b.createdAt);
-                        if (dateDiff === 0) {
-                            if (!a._id || !b._id) return 0;
-                            return a._id.toString().localeCompare(b._id.toString());
-                        }
-                        return dateDiff;
-                    });
+                    // RECONCILIATION: Safely merge to guarantee we NEVER destroy newly arrived Socket.io messages
+                    const newMessages = mergeMessages(currentMsgs, [...decryptedMessages, ...pendingMsgs]);
 
                     set(state => ({
                         messages: state.currentProjectId === projectId ? newMessages : state.messages,
@@ -489,24 +521,8 @@ export const useChatStore = create(
                     set(state => {
                         const existingMsgs = state.messagesCache[projectId] || (state.currentProjectId === projectId ? state.messages : []);
 
-                        // Carefully merge avoiding any duplicates
-                        let mergedMap = new Map();
-                        existingMsgs.forEach(m => mergedMap.set(m._id || m.clientMessageId, m));
-                        decryptedMessages.forEach(m => {
-                            if (!mergedMap.has(m._id || m.clientMessageId)) {
-                                mergedMap.set(m._id || m.clientMessageId, m);
-                            }
-                        });
-
-                        const newMessages = Array.from(mergedMap.values());
-                        newMessages.sort((a, b) => {
-                            const dateDiff = new Date(a.createdAt) - new Date(b.createdAt);
-                            if (dateDiff === 0) {
-                                if (!a._id || !b._id) return 0;
-                                return a._id.toString().localeCompare(b._id.toString());
-                            }
-                            return dateDiff;
-                        });
+                        // RECONCILIATION
+                        const newMessages = mergeMessages(existingMsgs, decryptedMessages);
 
                         return {
                             messages: state.currentProjectId === projectId ? newMessages : state.messages,
@@ -545,22 +561,10 @@ export const useChatStore = create(
                     );
 
                     set(state => {
-                        const currentCache = state.messagesCache[projectId] || (state.currentProjectId === projectId ? state.messages : []);
-                        let newMessages = [...currentCache];
+                        const existingMsgs = state.messagesCache[projectId] || (state.currentProjectId === projectId ? state.messages : []);
 
-                        decryptedMessages.forEach(dec => {
-                            const existsClient = dec.clientMessageId && newMessages.find(m => m.clientMessageId === dec.clientMessageId);
-                            const existsId = newMessages.find(m => m._id === dec._id);
-
-                            if (existsClient) {
-                                newMessages[newMessages.indexOf(existsClient)] = dec;
-                            } else if (!existsId) {
-                                newMessages.push(dec);
-                            } else {
-                                // Overwrite existing cache aggressively to enforce correctness of status/edited states in the gap
-                                newMessages[newMessages.indexOf(existsId)] = { ...existsId, ...dec };
-                            }
-                        });
+                        // RECONCILIATION
+                        let newMessages = mergeMessages(existingMsgs, decryptedMessages);
 
                         // Post-sync scrub: fail any SENDING messages not actively queued
                         const pendingQ = state.pendingMessages || [];
@@ -568,15 +572,6 @@ export const useChatStore = create(
                             if (m.status === 'SENDING' && !pendingQ.some(p => p.payload.clientMessageId === m.clientMessageId)) {
                                 m.status = 'FAILED';
                             }
-                        });
-
-                        newMessages.sort((a, b) => {
-                            const dateDiff = new Date(a.createdAt) - new Date(b.createdAt);
-                            if (dateDiff === 0) {
-                                if (!a._id || !b._id) return 0;
-                                return a._id.toString().localeCompare(b._id.toString());
-                            }
-                            return dateDiff;
                         });
 
                         return {
@@ -651,6 +646,33 @@ export const useChatStore = create(
 
             setActiveChat: (chat) => {
                 set({ activeChat: chat });
+            },
+
+            retryMessage: async (clientMessageId, projectId) => {
+                const targetMsg = get().messages.find(m => m.clientMessageId === clientMessageId);
+                if (!targetMsg || targetMsg.status !== 'FAILED') return;
+
+                // Immediately pivot UI to SENDING
+                set(state => {
+                    const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'SENDING' } : m);
+                    const newCache = { ...state.messagesCache };
+                    newCache[projectId] = newMsgs;
+                    return { messages: newMsgs, messagesCache: newCache };
+                });
+
+                try {
+                    const replyToId = targetMsg.replyTo ? (targetMsg.replyTo.id || targetMsg.replyTo._id) : null;
+                    set(state => {
+                        const newMsgs = state.messages.filter(m => m.clientMessageId !== clientMessageId);
+                        const newCache = { ...state.messagesCache };
+                        newCache[projectId] = newMsgs;
+                        return { messages: newMsgs, messagesCache: newCache };
+                    });
+
+                    await get().sendProjectMessage(projectId, targetMsg.content, replyToId, targetMsg.messageType || 'TEXT');
+                } catch (err) {
+                    console.error("Retry failed:", err);
+                }
             },
 
             /**
@@ -771,9 +793,21 @@ export const useChatStore = create(
                                         resolvedSenderKeyId = myCurrentKeyId;
                                         resolvedRecipientKeyId = secretObj.theirKeyId;
                                     } else {
+                                        set(state => {
+                                            const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'FAILED' } : m);
+                                            const newCache = { ...state.messagesCache };
+                                            newCache[projectId] = newMsgs;
+                                            return { messages: newMsgs, messagesCache: newCache };
+                                        });
                                         return reject(new Error("E2EE Secret Key unresolvable. Message halted to prevent plaintext transmission."));
                                     }
                                 } catch (err) {
+                                    set(state => {
+                                        const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'FAILED' } : m);
+                                        const newCache = { ...state.messagesCache };
+                                        newCache[projectId] = newMsgs;
+                                        return { messages: newMsgs, messagesCache: newCache };
+                                    });
                                     return reject(new Error("Encryption algorithm failed. Message halted to prevent plaintext transmission."));
                                 }
                             }
@@ -818,7 +852,14 @@ export const useChatStore = create(
                                 // Wipe from pending list and transition SENDING -> SENT
                                 set(state => {
                                     const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
-                                    const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'SENT' } : m);
+
+                                    // RECONCILIATION: Update the ghost _id to the real _id from the server
+                                    const newMsgs = state.messages.map(m => {
+                                        if (m.clientMessageId === clientMessageId) {
+                                            return { ...m, _id: response.messageId, status: 'SENT' };
+                                        }
+                                        return m;
+                                    });
                                     const newCache = { ...state.messagesCache };
                                     newCache[projectId] = newMsgs;
                                     return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
@@ -829,6 +870,44 @@ export const useChatStore = create(
                             }
                         });
                     })();
+                });
+            },
+
+            flushOfflineQueue: async () => {
+                const { pendingMessages } = get();
+                if (!pendingMessages || pendingMessages.length === 0) return;
+
+                console.log(`[E2EE/Offline] Flushing ${pendingMessages.length} deferred messages to Socket.`);
+                const socket = useAuthStore.getState().socket;
+                if (!socket || !socket.connected) {
+                    console.warn("[E2EE/Offline] Socket unavailable, aborting offline flush.");
+                    return;
+                }
+
+                // Batch re-emit carefully. 
+                // We do NOT mutate the array here, let the callbacks handle it when the Server says OK.
+                pendingMessages.forEach(pending => {
+                    const { payload, optimisticMsg } = pending;
+                    // Because these already have encryption applied from their original attempt, 
+                    // we can securely replay the payload instantly.
+                    socket.timeout(5000).emit("send_project_message", payload, (err, response) => {
+                        if (!err && response && response.status === 'ok') {
+                            set(state => {
+                                const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== payload.clientMessageId);
+                                const newMsgs = state.messages.map(m => {
+                                    if (m.clientMessageId === payload.clientMessageId) {
+                                        return { ...m, _id: response.messageId, status: 'SENT' };
+                                    }
+                                    return m;
+                                });
+                                const newCache = { ...state.messagesCache };
+                                if (payload.projectId) newCache[payload.projectId] = newMsgs;
+                                return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                            });
+                        } else {
+                            console.warn("[E2EE/Offline] Buffered message failed retry:", err || response);
+                        }
+                    });
                 });
             },
 
@@ -914,27 +993,9 @@ export const useChatStore = create(
                     if (!roomProjectId) return state; // Ignore invalid messages
 
                     const currentMsgs = state.messagesCache[roomProjectId] || (state.currentProjectId === roomProjectId ? state.messages : []);
-                    let newMessages = [...currentMsgs];
 
-                    let foundAndUpdated = false;
-
-                    // Safe deduplication loop
-                    for (let i = 0; i < newMessages.length; i++) {
-                        const m = newMessages[i];
-                        if (decryptedMsg.clientMessageId && m.clientMessageId === decryptedMsg.clientMessageId) {
-                            newMessages[i] = decryptedMsg;
-                            foundAndUpdated = true;
-                            break;
-                        }
-                        if (m._id === decryptedMsg._id) {
-                            foundAndUpdated = true;
-                            break;
-                        }
-                    }
-
-                    if (!foundAndUpdated) {
-                        newMessages.push(decryptedMsg);
-                    }
+                    // RECONCILIATION
+                    const newMessages = mergeMessages(currentMsgs, [decryptedMsg]);
 
                     return {
                         messages: state.currentProjectId === roomProjectId ? newMessages : state.messages,
@@ -1050,7 +1111,8 @@ export const useChatStore = create(
             name: 'chatapp-offline-cache',
             partialize: (state) => ({
                 messagesCache: state.messagesCache,
-                chats: state.chats
+                chats: state.chats,
+                pendingMessages: state.pendingMessages
             }),
         }
     )

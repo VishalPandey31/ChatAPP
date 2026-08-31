@@ -9,7 +9,12 @@ import {
     importPublicKey,
     exportPrivateKey,
     importPrivateKey,
-    generateKeyId
+    generateKeyId,
+    deriveBackupKey,
+    encryptMessage,
+    decryptMessage,
+    bufferToBase64,
+    base64ToBuffer
 } from '../utils/cryptoUtils';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -75,8 +80,48 @@ export const useAuthStore = create((set, get) => ({
                         myCurrentKeyId: storedKeyRing.currentKeyId,
                         myKeyRing: storedKeyRing
                     });
+
+                    // Non-blocking background backup update in case it was a new device restoring legacy
+                    if (window.__tempLoginPassword && window.__tempLoginEmail) {
+                        get()._backupEncryptedKeyRing(storedKeyRing, window.__tempLoginPassword, window.__tempLoginEmail);
+                    }
+
                     return { privateKey, publicKeyJwk: activePair.publicKeyJwk, keyId: storedKeyRing.currentKeyId };
                 } else {
+                    // BEFORE giving up and burning historical keys, try fetching the server backup!
+                    let restoredRing = null;
+                    if (window.__tempLoginPassword && window.__tempLoginEmail) {
+                        try {
+                            const res = await fetch(`${BACKEND_URL}/api/auth/keys/backup`, { credentials: 'include' });
+                            if (res.ok) {
+                                const backupData = await res.json();
+                                if (backupData.encryptedKeyRing && backupData.encryptedKeyRingIv) {
+                                    const deriveKey = await deriveBackupKey(window.__tempLoginPassword, window.__tempLoginEmail);
+                                    const decryptedRaw = await decryptMessage(backupData.encryptedKeyRing, backupData.encryptedKeyRingIv, deriveKey);
+                                    restoredRing = JSON.parse(decryptedRaw);
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('[E2EE] Failed restoring backup from cloud', e);
+                        }
+                    }
+
+                    if (restoredRing && restoredRing.currentKeyId) {
+                        // SUCCESS! We restored the keys from the server without the server knowing them!
+                        storedKeyRing = restoredRing;
+                        localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
+
+                        const activePair = storedKeyRing.keys[storedKeyRing.currentKeyId];
+                        const privateKey = await importPrivateKey(activePair.privateKeyJwk);
+                        set({
+                            myPrivateKey: privateKey,
+                            myPublicKeyJwk: activePair.publicKeyJwk,
+                            myCurrentKeyId: storedKeyRing.currentKeyId,
+                            myKeyRing: storedKeyRing
+                        });
+                        return { privateKey, publicKeyJwk: activePair.publicKeyJwk, keyId: storedKeyRing.currentKeyId };
+                    }
+
                     // Generate new keypair securely scoped to this exact user
                     const keyPair = await generateKeyPair();
                     const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
@@ -97,6 +142,11 @@ export const useAuthStore = create((set, get) => ({
                         myCurrentKeyId: newKeyId,
                         myKeyRing: storedKeyRing
                     });
+
+                    if (window.__tempLoginPassword && window.__tempLoginEmail) {
+                        get()._backupEncryptedKeyRing(storedKeyRing, window.__tempLoginPassword, window.__tempLoginEmail);
+                    }
+
                     return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk, keyId: newKeyId };
                 }
             } catch (err) {
@@ -129,6 +179,29 @@ export const useAuthStore = create((set, get) => ({
         }
     },
 
+    _backupEncryptedKeyRing: async (keyRing, password, email) => {
+        try {
+            const deriveKey = await deriveBackupKey(password, email);
+            const ivBuffer = window.crypto.getRandomValues(new Uint8Array(12));
+            const ivBase64 = bufferToBase64(ivBuffer);
+
+            const rawCiphertext = await encryptMessage(JSON.stringify(keyRing), deriveKey, ivBuffer);
+
+            await fetch(`${BACKEND_URL}/api/auth/keys/backup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    encryptedKeyRing: rawCiphertext,
+                    encryptedKeyRingIv: ivBase64
+                })
+            });
+            console.log('[E2EE] Private Key Ring zero-knowledge backed up to cloud');
+        } catch (e) {
+            console.error('[E2EE] Failed to backup encrypted ring to cloud', e);
+        }
+    },
+
     login: async (credentials, isAdmin = false) => {
         try {
             const endpoint = isAdmin ? '/api/auth/admin/login' : '/api/auth/user/login';
@@ -140,6 +213,10 @@ export const useAuthStore = create((set, get) => ({
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
+
+            // Expose temporarily for PBKDF2
+            window.__tempLoginPassword = credentials.password;
+            window.__tempLoginEmail = data.email || credentials.email;
 
             set({ user: data });
             get().connectSocket();
@@ -168,6 +245,10 @@ export const useAuthStore = create((set, get) => ({
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
+
+            // Expose temporarily for PBKDF2
+            window.__tempLoginPassword = credentials.password;
+            window.__tempLoginEmail = data.email || credentials.email;
 
             set({ user: data });
             get().connectSocket();
@@ -239,6 +320,10 @@ export const useAuthStore = create((set, get) => ({
 
         socket.on('connect', () => {
             socket.emit('join', user._id);
+            // Trigger offline queue flush safely to avoid circular dependency
+            import('./chatStore').then(module => {
+                module.useChatStore.getState().flushOfflineQueue();
+            }).catch(err => console.warn('[E2EE] Failed to lazy-load chatStore for flush', err));
         });
 
         socket.on('initial_online_users', (userIds) => {

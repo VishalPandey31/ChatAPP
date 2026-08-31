@@ -57,6 +57,14 @@ const userSchema = new mongoose.Schema({
             createdAt: { type: Date, default: Date.now }
         }],
         default: []
+    },
+    encryptedKeyRing: {
+        type: String, // Base64 ciphertext of the user's Private Key Ring
+        default: null
+    },
+    encryptedKeyRingIv: {
+        type: String, // IV used to encrypt the Key Ring
+        default: null
     }
 }, { timestamps: true });
 
