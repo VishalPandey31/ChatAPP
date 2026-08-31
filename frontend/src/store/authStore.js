@@ -79,19 +79,9 @@ export const useAuthStore = create((set, get) => ({
 
     _uploadPublicKey: async (publicKeyJwk) => {
         try {
-            // CRITICAL: Only upload if the server does NOT already have a key.
-            // Overwriting an existing server key breaks ALL historical messages
-            // because the ECDH shared secret changes.
-            const currentUser = get().user;
-            if (!currentUser) return;
-            const checkRes = await fetch(`${BACKEND_URL}/api/auth/keys/${currentUser._id}`, {
-                credentials: 'include'
-            });
-            if (checkRes.ok) {
-                // Server already has a public key — do NOT overwrite it
-                return;
-            }
-            // Server has no key (404) — safe to upload for the first time
+            // Always upload the public key that mathematically corresponds to the current local private key.
+            // If we don't, and the user clears their cache, they will encrypt with a new private key
+            // while others decrypt with the old server public key — failing 100% of the time.
             await fetch(`${BACKEND_URL}/api/auth/keys/upload`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
