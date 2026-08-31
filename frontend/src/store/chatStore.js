@@ -313,8 +313,14 @@ export const useChatStore = create(
             getProjectMessages: async (projectId, force = false) => {
                 const cached = get().messagesCache[projectId];
 
-                // Self-healing: Detect permanently corrupted string in cache (e.g. from previous race conditions)
-                const isCorrupted = cached && cached.some(m => m.encryptionVersion === 1 && m.content && (m.content.includes('key not yet available') || m.content.includes('Message decryption failed')));
+                // Self-healing: Detect permanently corrupted string in cache (e.g. from decryption failures baked into persisted storage)
+                const isCorrupted = cached && cached.some(m => typeof m.content === 'string' && (
+                    m.content.includes('key not yet available') ||
+                    m.content.includes('Message decryption failed') ||
+                    m.content.includes('Encrypted (Key Rotated)') ||
+                    m.content.includes('Encrypted (Missing Sender Key)') ||
+                    m.content.includes('Encryption Failed')
+                ));
 
                 // Scrub hanging SENDING states caused by page reloads dropping the pending queue.
                 const pendingQueue = get().pendingMessages || [];

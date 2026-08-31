@@ -30,6 +30,7 @@ export const useAuthStore = create((set, get) => ({
         if (initKeysPromise) return initKeysPromise;
 
         initKeysPromise = (async () => {
+            // Attempt to load existing keypair from localStorage
             try {
                 const currentUser = get().user;
                 if (!currentUser) return null;
@@ -40,53 +41,28 @@ export const useAuthStore = create((set, get) => ({
                 let storedPrivJwk = localStorage.getItem(userPrivKeyStr);
                 let storedPubJwk = localStorage.getItem(userPubKeyStr);
 
-                // Fallback: migrate generic legacy keys to prevent historical data loss
-                if (!storedPrivJwk) {
-                    const legacyPriv = localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
-                    const legacyPub = localStorage.getItem('e2ee_public_key_jwk');
-                    if (legacyPriv && legacyPub) {
-                        localStorage.setItem(userPrivKeyStr, legacyPriv);
-                        localStorage.setItem(userPubKeyStr, legacyPub);
-                        storedPrivJwk = legacyPriv;
-                        storedPubJwk = legacyPub;
-                    }
-                }
+                // NOTE: We intentionally do NOT migrate from the generic
+                // 'e2ee_private_key_jwk' slot because that slot may contain
+                // a DIFFERENT user's key (e.g. admin's key when user logs in
+                // on the same browser). Cross-contaminating keys makes ALL
+                // historical messages permanently undecryptable.
 
                 if (storedPrivJwk && storedPubJwk) {
-                    // Existing keypair found — reuse it (never regenerate)
                     const privateKey = await importPrivateKey(storedPrivJwk);
                     set({ myPrivateKey: privateKey, myPublicKeyJwk: storedPubJwk });
-                    return { privateKey, publicKeyJwk: storedPubJwk, isExisting: true };
+                    return { privateKey, publicKeyJwk: storedPubJwk };
                 } else {
-                    // No local key found. CRITICAL: Check if the server already has a
-                    // public key for this user. If yes, we must NOT overwrite it because
-                    // that would break decryption of all existing messages encrypted
-                    // against the old keypair by the other party.
-                    let serverHasKey = false;
-                    try {
-                        const res = await fetch(`${BACKEND_URL}/api/auth/keys/${currentUser._id}`, {
-                            credentials: 'include'
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data.publicKey) serverHasKey = true;
-                        }
-                    } catch (e) { /* server unreachable, proceed with generation */ }
-
-                    // Generate new keypair
+                    // Generate new keypair securely scoped to this exact user
                     const keyPair = await generateKeyPair();
                     const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
                     const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
 
+                    // Store ONLY in the per-user slots (never the generic slot)
                     localStorage.setItem(userPrivKeyStr, privKeyJwk);
                     localStorage.setItem(userPubKeyStr, pubKeyJwk);
-                    localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, privKeyJwk);
-                    localStorage.setItem('e2ee_public_key_jwk', pubKeyJwk);
 
                     set({ myPrivateKey: keyPair.privateKey, myPublicKeyJwk: pubKeyJwk });
-                    // isNew=true means "upload to server", but only if the server
-                    // doesn't already have a key (prevents overwriting the old one)
-                    return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk, isExisting: false, serverHasKey };
+                    return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk };
                 }
             } catch (err) {
                 console.error('[E2EE] Failed to initialize keypair:', err);
@@ -101,15 +77,21 @@ export const useAuthStore = create((set, get) => ({
         }
     },
 
-    _uploadPublicKey: async (publicKeyJwk, keys) => {
+    _uploadPublicKey: async (publicKeyJwk) => {
         try {
-            // CRITICAL: Never overwrite a server-side public key if one already exists.
-            // Overwriting would permanently break decryption of all messages encrypted
-            // using the previous keypair's shared secret.
-            if (keys && keys.serverHasKey) {
-                console.warn('[E2EE] Server already has a public key. Skipping upload to prevent key rotation.');
+            // CRITICAL: Only upload if the server does NOT already have a key.
+            // Overwriting an existing server key breaks ALL historical messages
+            // because the ECDH shared secret changes.
+            const currentUser = get().user;
+            if (!currentUser) return;
+            const checkRes = await fetch(`${BACKEND_URL}/api/auth/keys/${currentUser._id}`, {
+                credentials: 'include'
+            });
+            if (checkRes.ok) {
+                // Server already has a public key — do NOT overwrite it
                 return;
             }
+            // Server has no key (404) — safe to upload for the first time
             await fetch(`${BACKEND_URL}/api/auth/keys/upload`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -138,7 +120,7 @@ export const useAuthStore = create((set, get) => ({
 
             // Non-blocking: fire E2EE key init in background so login navigation is instant
             get()._initE2EEKeys().then(keys => {
-                if (keys) get()._uploadPublicKey(keys.publicKeyJwk, keys);
+                if (keys) get()._uploadPublicKey(keys.publicKeyJwk);
             });
 
             return true;
@@ -166,7 +148,7 @@ export const useAuthStore = create((set, get) => ({
 
             // Non-blocking: fire E2EE key init in background so registration navigation is instant
             get()._initE2EEKeys().then(keys => {
-                if (keys) get()._uploadPublicKey(keys.publicKeyJwk, keys);
+                if (keys) get()._uploadPublicKey(keys.publicKeyJwk);
             });
 
             return true;
@@ -213,7 +195,7 @@ export const useAuthStore = create((set, get) => ({
 
             get().connectSocket();
             get()._initE2EEKeys().then(keys => {
-                if (keys) get()._uploadPublicKey(keys.publicKeyJwk, keys);
+                if (keys) get()._uploadPublicKey(keys.publicKeyJwk);
             });
         } catch (err) {
             console.error(err);
@@ -235,17 +217,16 @@ export const useAuthStore = create((set, get) => ({
 
         socket.on('initial_online_users', (userIds) => {
             set({ onlineUsers: userIds });
-            // REMOVED: clearUserEncryptionCache was called here, which destroyed
-            // the derived shared secret cache on every page load, forcing
-            // re-derivation from potentially overwritten server keys.
+            // DO NOT clear encryption cache here. The ECDH shared secret is
+            // deterministic for a given key pair. Clearing it forces re-derivation
+            // which, if the other user's key pair changed, produces the WRONG key
+            // and makes ALL old messages undecryptable.
         });
 
         socket.on('user_status', ({ userId, status, lastSeen }) => {
             if (status === 'online') {
                 set((state) => ({ onlineUsers: [...new Set([...state.onlineUsers, userId])] }));
-                // REMOVED: clearUserEncryptionCache(userId) — this was destroying
-                // the shared secret every time a user reconnected, forcing
-                // re-derivation and causing decryption failures.
+                // DO NOT clear encryption cache on online status changes.
             } else {
                 set((state) => {
                     const newStatus = { onlineUsers: state.onlineUsers.filter(id => id !== userId) };
