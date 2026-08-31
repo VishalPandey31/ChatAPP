@@ -145,6 +145,10 @@ export async function decryptMessage(ciphertextBase64, ivBase64, sharedKey) {
 }
 
 // Helpers
+export function generateKeyId() {
+    return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
+
 export function bufferToBase64(buffer) {
     let binary = '';
     const bytes = new Uint8Array(buffer);

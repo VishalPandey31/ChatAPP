@@ -33,6 +33,14 @@ const messageSchema = new mongoose.Schema({
         type: Number,   // 0 = legacy plaintext, 1 = AES-GCM E2EE
         default: 0
     },
+    senderKeyId: {
+        type: String,   // Exact keyId used by the sender for this specific message
+        default: null
+    },
+    recipientKeyId: {
+        type: String,   // Exact keyId of the recipient's public key used when encrypting this message
+        default: null
+    },
     messageType: {
         type: String,
         enum: ['TEXT', 'IMAGE', 'VOICE', 'CALL_RECORD'],

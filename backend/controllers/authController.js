@@ -160,12 +160,25 @@ export const getMe = async (req, res) => {
 // @desc Upload / Update E2EE Public Key for this user
 export const uploadPublicKey = async (req, res) => {
     try {
-        const { publicKey } = req.body;
-        if (!publicKey || typeof publicKey !== 'string' || publicKey.length > 2048) {
+        const { keyId, publicKey } = req.body;
+
+        // Legacy fallback
+        if (!keyId && publicKey) {
+            await User.findByIdAndUpdate(req.user._id, { publicKey });
+            return res.status(200).json({ message: 'Legacy public key registered successfully.' });
+        }
+
+        if (!keyId || !publicKey || typeof publicKey !== 'string' || publicKey.length > 2048) {
             return res.status(400).json({ message: 'Invalid public key format.' });
         }
-        await User.findByIdAndUpdate(req.user._id, { publicKey });
-        res.status(200).json({ message: 'Public key registered successfully.' });
+
+        // Push new key to history array, AND update legacy slot for backward compatibility
+        await User.findByIdAndUpdate(req.user._id, {
+            publicKey, // keep legacy client working temporarily
+            $push: { publicKeys: { keyId, publicKey } }
+        });
+
+        res.status(200).json({ message: 'Public key registered successfully with KeyId.' });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
@@ -176,10 +189,13 @@ export const uploadPublicKey = async (req, res) => {
 export const getPublicKey = async (req, res) => {
     try {
         const { userId } = req.params;
-        const user = await User.findById(userId).select('publicKey name');
+        const user = await User.findById(userId).select('publicKey publicKeys name');
         if (!user) return res.status(404).json({ message: 'User not found.' });
-        if (!user.publicKey) return res.status(404).json({ message: 'Public key not registered for this user.' });
-        res.status(200).json({ publicKey: user.publicKey });
+
+        res.status(200).json({
+            publicKey: user.publicKey, // legacy
+            publicKeys: user.publicKeys || [] // new key ring history
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });

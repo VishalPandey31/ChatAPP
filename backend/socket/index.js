@@ -111,10 +111,10 @@ export const socketHandler = (io) => {
 
         // Direct Messaging - 1-to-1
         socket.on("send_message", async (data) => {
-            // data: { senderId, receiverId, content, messageType }
+            // data: { senderId, receiverId, content, messageType, iv, encryptionVersion, senderKeyId, recipientKeyId }
 
             try {
-                const { senderId, receiverId, content, messageType } = data;
+                const { senderId, receiverId, content, messageType, iv, encryptionVersion, senderKeyId, recipientKeyId } = data;
 
                 // Verify both sender & receiver are allowed
                 const sender = await User.findById(senderId);
@@ -132,7 +132,11 @@ export const socketHandler = (io) => {
                     sender: senderId,
                     receiver: receiverId,
                     content,
-                    messageType: messageType || 'TEXT'
+                    messageType: messageType || 'TEXT',
+                    iv: iv || null,
+                    encryptionVersion: encryptionVersion || 0,
+                    senderKeyId: senderKeyId || null,
+                    recipientKeyId: recipientKeyId || null
                 });
 
                 // Find or create Chat
@@ -203,7 +207,7 @@ export const socketHandler = (io) => {
 
         socket.on("send_project_message", async (data, callback) => {
             try {
-                const { senderId, projectId, content, messageType, replyTo, clientMessageId, iv, encryptionVersion } = data;
+                const { senderId, projectId, content, messageType, replyTo, clientMessageId, iv, encryptionVersion, senderKeyId, recipientKeyId } = data;
 
                 // Security: Validate the senderId matches the authenticated socket user
                 const authenticatedUserId = connectedUsers.get(socket.id);
@@ -219,13 +223,15 @@ export const socketHandler = (io) => {
                     return;
                 }
 
-                // Create message — now with E2EE ciphertext fields
+                // Create message — now with E2EE ciphertext and exact Key Version metadata fields
                 let msgData = {
                     sender: senderId,
                     projectId: projectId,
                     content,                                          // ciphertext (Base64) or plaintext for images/legacy
                     iv: iv || null,                                   // Base64 IV for AES-GCM
                     encryptionVersion: encryptionVersion || 0,        // 0 = legacy, 1 = AES-GCM E2EE
+                    senderKeyId: senderKeyId || null,
+                    recipientKeyId: recipientKeyId || null,
                     messageType: messageType || 'TEXT'
                 };
                 if (replyTo) {

@@ -6,8 +6,10 @@ import { useChatStore, clearUserEncryptionCache } from './chatStore';
 import {
     generateKeyPair,
     exportPublicKey,
+    importPublicKey,
     exportPrivateKey,
-    importPrivateKey
+    importPrivateKey,
+    generateKeyId
 } from '../utils/cryptoUtils';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -35,34 +37,67 @@ export const useAuthStore = create((set, get) => ({
                 const currentUser = get().user;
                 if (!currentUser) return null;
 
-                const userPrivKeyStr = `e2ee_private_key_${currentUser._id}`;
-                const userPubKeyStr = `e2ee_public_key_${currentUser._id}`;
+                const keyRingKey = `e2ee_keys_${currentUser._id}`;
+                let storedKeyRing = null;
+                try {
+                    const raw = localStorage.getItem(keyRingKey);
+                    if (raw) storedKeyRing = JSON.parse(raw);
+                } catch (e) {
+                    console.warn('Failed to parse E2EE key ring', e);
+                }
 
-                let storedPrivJwk = localStorage.getItem(userPrivKeyStr);
-                let storedPubJwk = localStorage.getItem(userPubKeyStr);
+                // Temporary backward compatibility for existing unversioned keys
+                const legacyPrivStr = `e2ee_private_key_${currentUser._id}`;
+                const legacyPubStr = `e2ee_public_key_${currentUser._id}`;
+                let legacyPrivJwk = localStorage.getItem(legacyPrivStr);
+                let legacyPubJwk = localStorage.getItem(legacyPubStr);
 
-                // NOTE: We intentionally do NOT migrate from the generic
-                // 'e2ee_private_key_jwk' slot because that slot may contain
-                // a DIFFERENT user's key (e.g. admin's key when user logs in
-                // on the same browser). Cross-contaminating keys makes ALL
-                // historical messages permanently undecryptable.
+                if (!storedKeyRing) {
+                    storedKeyRing = { currentKeyId: null, keys: {} };
+                }
 
-                if (storedPrivJwk && storedPubJwk) {
-                    const privateKey = await importPrivateKey(storedPrivJwk);
-                    set({ myPrivateKey: privateKey, myPublicKeyJwk: storedPubJwk });
-                    return { privateKey, publicKeyJwk: storedPubJwk };
+                // If no current key exists, BUT legacy exists, migrate it into ring as "legacy"
+                if (!storedKeyRing.currentKeyId && legacyPrivJwk && legacyPubJwk) {
+                    storedKeyRing.currentKeyId = 'legacy';
+                    storedKeyRing.keys['legacy'] = {
+                        privateKeyJwk: legacyPrivJwk,
+                        publicKeyJwk: legacyPubJwk
+                    };
+                    localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
+                }
+
+                if (storedKeyRing.currentKeyId && storedKeyRing.keys[storedKeyRing.currentKeyId]) {
+                    const activePair = storedKeyRing.keys[storedKeyRing.currentKeyId];
+                    const privateKey = await importPrivateKey(activePair.privateKeyJwk);
+                    set({
+                        myPrivateKey: privateKey,
+                        myPublicKeyJwk: activePair.publicKeyJwk,
+                        myCurrentKeyId: storedKeyRing.currentKeyId,
+                        myKeyRing: storedKeyRing
+                    });
+                    return { privateKey, publicKeyJwk: activePair.publicKeyJwk, keyId: storedKeyRing.currentKeyId };
                 } else {
                     // Generate new keypair securely scoped to this exact user
                     const keyPair = await generateKeyPair();
                     const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
                     const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
+                    const newKeyId = generateKeyId();
 
-                    // Store ONLY in the per-user slots (never the generic slot)
-                    localStorage.setItem(userPrivKeyStr, privKeyJwk);
-                    localStorage.setItem(userPubKeyStr, pubKeyJwk);
+                    storedKeyRing.currentKeyId = newKeyId;
+                    storedKeyRing.keys[newKeyId] = {
+                        privateKeyJwk: privKeyJwk,
+                        publicKeyJwk: pubKeyJwk
+                    };
 
-                    set({ myPrivateKey: keyPair.privateKey, myPublicKeyJwk: pubKeyJwk });
-                    return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk };
+                    localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
+
+                    set({
+                        myPrivateKey: keyPair.privateKey,
+                        myPublicKeyJwk: pubKeyJwk,
+                        myCurrentKeyId: newKeyId,
+                        myKeyRing: storedKeyRing
+                    });
+                    return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk, keyId: newKeyId };
                 }
             } catch (err) {
                 console.error('[E2EE] Failed to initialize keypair:', err);
@@ -77,16 +112,17 @@ export const useAuthStore = create((set, get) => ({
         }
     },
 
-    _uploadPublicKey: async (publicKeyJwk) => {
+    _uploadPublicKey: async (keyData) => {
         try {
-            // Always upload the public key that mathematically corresponds to the current local private key.
-            // If we don't, and the user clears their cache, they will encrypt with a new private key
-            // while others decrypt with the old server public key — failing 100% of the time.
+            // keyData = { publicKeyJwk, keyId }
             await fetch(`${BACKEND_URL}/api/auth/keys/upload`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ publicKey: publicKeyJwk })
+                body: JSON.stringify({
+                    publicKey: keyData.publicKeyJwk,
+                    keyId: keyData.keyId
+                })
             });
         } catch (err) {
             console.error('[E2EE] Failed to upload public key:', err);
@@ -110,7 +146,7 @@ export const useAuthStore = create((set, get) => ({
 
             // Non-blocking: fire E2EE key init in background so login navigation is instant
             get()._initE2EEKeys().then(keys => {
-                if (keys) get()._uploadPublicKey(keys.publicKeyJwk);
+                if (keys && keys.keyId) get()._uploadPublicKey(keys);
             });
 
             return true;
@@ -138,7 +174,7 @@ export const useAuthStore = create((set, get) => ({
 
             // Non-blocking: fire E2EE key init in background so registration navigation is instant
             get()._initE2EEKeys().then(keys => {
-                if (keys) get()._uploadPublicKey(keys.publicKeyJwk);
+                if (keys && keys.keyId) get()._uploadPublicKey(keys);
             });
 
             return true;

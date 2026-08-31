@@ -60,48 +60,82 @@ export const preloadPublicKey = async (recipientId, pubKeyJwk) => {
  * Fetch the recipient's public key from backend and derive a shared AES-GCM secret.
  * Returns the CryptoKey or null if E2EE is unavailable.
  */
-async function getSharedSecret(recipientId) {
+async function getSharedSecret(recipientId, myRequiredKeyId = null, theirRequiredKeyId = null) {
     if (!recipientId) return null;
-    if (sharedSecretCache.has(recipientId)) {
-        return sharedSecretCache.get(recipientId);
-    }
 
-    // Memoization return (Thundering Herd protection)
-    if (sharedSecretPromiseCache.has(recipientId)) {
-        return sharedSecretPromiseCache.get(recipientId);
-    }
+    // Cache key now securely isolates different version pairs
+    const cacheKey = `${recipientId}_${myRequiredKeyId || 'leg'}_${theirRequiredKeyId || 'leg'}`;
 
-    let myPrivateKey = useAuthStore.getState().myPrivateKey;
-    if (!myPrivateKey) {
-        try {
-            const keys = await useAuthStore.getState()._initE2EEKeys();
-            if (keys) myPrivateKey = keys.privateKey;
-        } catch (e) {
-            console.warn('[E2EE] Key init failed', e);
-        }
+    if (sharedSecretCache.has(cacheKey)) {
+        return sharedSecretCache.get(cacheKey);
     }
-    if (!myPrivateKey) return null;
+    if (sharedSecretPromiseCache.has(cacheKey)) {
+        return sharedSecretPromiseCache.get(cacheKey);
+    }
 
     const fetchPromise = (async () => {
         try {
+            const authState = useAuthStore.getState();
+            let myPrivateKey;
+
+            // 1. Resolve My Private Key from the Key Ring
+            if (myRequiredKeyId && authState.myKeyRing?.keys?.[myRequiredKeyId]) {
+                const jwkObj = authState.myKeyRing.keys[myRequiredKeyId];
+                myPrivateKey = await importPrivateKey(jwkObj.privateKeyJwk);
+            } else if (!myRequiredKeyId) {
+                // Legacy unversioned
+                if (!authState.myPrivateKey) await authState._initE2EEKeys();
+                myPrivateKey = useAuthStore.getState().myPrivateKey;
+            } else {
+                console.warn(`[E2EE] Permanent Lockout: Device lacks historical private key -> ${myRequiredKeyId}`);
+                return null;
+            }
+
+            if (!myPrivateKey) return null;
+
+            // 2. Fetch recipient Public Key Ring
             const res = await fetch(`${BACKEND_URL}/api/auth/keys/${recipientId}`, {
                 credentials: 'include'
             });
             if (!res.ok) return null;
-            const { publicKey: pubKeyJwk } = await res.json();
-            const recipientPublicKey = await importPublicKey(pubKeyJwk);
+            const data = await res.json(); // { publicKey, publicKeys: [{keyId, publicKey}] }
+
+            let theirPublicKeyJwk = null;
+            let resolvedTheirKeyId = null;
+
+            if (theirRequiredKeyId === 'LATEST' && data.publicKeys && data.publicKeys.length > 0) {
+                // Pluck the exact newest key for sending brand new messages
+                const latest = data.publicKeys[data.publicKeys.length - 1];
+                theirPublicKeyJwk = latest.publicKey;
+                resolvedTheirKeyId = latest.keyId;
+            } else if (theirRequiredKeyId && theirRequiredKeyId !== 'LATEST' && data.publicKeys) {
+                // Pluck historical key for decrypting old messages
+                const found = data.publicKeys.find(k => k.keyId === theirRequiredKeyId);
+                if (found) theirPublicKeyJwk = found.publicKey;
+            }
+
+            // Absolute legacy fallback
+            if (!theirPublicKeyJwk && data.publicKey) {
+                theirPublicKeyJwk = data.publicKey;
+            }
+
+            if (!theirPublicKeyJwk) return null;
+
+            const recipientPublicKey = await importPublicKey(theirPublicKeyJwk);
             const sharedKey = await deriveSharedSecret(myPrivateKey, recipientPublicKey);
-            sharedSecretCache.set(recipientId, sharedKey);
-            return sharedKey;
+
+            const resultObj = { sharedKey, theirKeyId: resolvedTheirKeyId };
+            sharedSecretCache.set(cacheKey, resultObj);
+            return resultObj;
         } catch (err) {
             console.warn('[E2EE] Could not derive shared secret for', recipientId);
             return null;
         } finally {
-            sharedSecretPromiseCache.delete(recipientId); // Clean up the lock
+            sharedSecretPromiseCache.delete(cacheKey);
         }
     })();
 
-    sharedSecretPromiseCache.set(recipientId, fetchPromise);
+    sharedSecretPromiseCache.set(cacheKey, fetchPromise);
     return fetchPromise;
 }
 
@@ -180,17 +214,31 @@ async function decryptSingleMessage(msg, activeRecipientId) {
 
         if (!recipientId) return decryptedMsg;
 
-        const sharedKey = await getSharedSecret(recipientId);
+        let myRequiredKeyId = null;
+        let theirRequiredKeyId = null;
+
+        if (senderId === myId) {
+            myRequiredKeyId = msg.senderKeyId || null;
+            theirRequiredKeyId = msg.recipientKeyId || null;
+        } else {
+            myRequiredKeyId = msg.recipientKeyId || null;
+            theirRequiredKeyId = msg.senderKeyId || null;
+        }
+
+        const secretObj = await getSharedSecret(recipientId, myRequiredKeyId, theirRequiredKeyId);
+        const sharedKey = secretObj ? secretObj.sharedKey : null;
+
         if (!sharedKey) {
             if (outerNeedsDecryption) {
                 decryptedMsg.originalCiphertext = msg.originalCiphertext || msg.content;
-                decryptedMsg.content = '🔒 Encrypted (Missing Sender Key)';
+                decryptedMsg.content = '🔒 Encrypted (Key Missing)';
+                decryptedMsg.decryptionState = 'FAILED_MISSING_KEY';
             }
             if (innerNeedsDecryption) {
                 decryptedMsg.replyTo = {
                     ...decryptedMsg.replyTo,
                     originalCiphertext: msg.replyTo.originalCiphertext || msg.replyTo.content,
-                    content: '🔒 Encrypted (Missing Sender Key)'
+                    content: '🔒 Encrypted (Key Missing)'
                 };
             }
             return decryptedMsg;
@@ -217,6 +265,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                 // DO NOT delete originalCiphertext here. It allows retries/recovery later!
                 decryptedMsg.originalCiphertext = msg.originalCiphertext || msg.content;
                 decryptedMsg.content = '🔒 Encrypted (Key Rotated)';
+                decryptedMsg.decryptionState = 'FAILED_ROTATED';
             }
         }
 
@@ -254,7 +303,10 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         return decryptedMsg;
     } catch (err) {
         // Absolute fallback for unexpected crypto initialization errors
-        if (outerNeedsDecryption) decryptedMsg.content = '🔒 Encryption Failed';
+        if (outerNeedsDecryption) {
+            decryptedMsg.content = '🔒 Encryption Failed';
+            decryptedMsg.decryptionState = 'FAILED_CRYPTO';
+        }
         if (innerNeedsDecryption) decryptedMsg.replyTo = {
             id: decryptedMsg.replyTo._id || decryptedMsg.replyTo.id,
             senderId: typeof decryptedMsg.replyTo.sender === 'object' ? (decryptedMsg.replyTo.sender._id || decryptedMsg.replyTo.sender.id) : decryptedMsg.replyTo.sender,
@@ -313,11 +365,12 @@ export const useChatStore = create(
             getProjectMessages: async (projectId, force = false) => {
                 const cached = get().messagesCache[projectId];
 
-                // Self-healing: Detect permanently corrupted string in cache (e.g. from decryption failures baked into persisted storage)
+                // Self-healing: Detect permanently corrupted string in cache
                 const isCorrupted = cached && cached.some(m => typeof m.content === 'string' && (
                     m.content.includes('key not yet available') ||
                     m.content.includes('Message decryption failed') ||
                     m.content.includes('Encrypted (Key Rotated)') ||
+                    m.content.includes('Encrypted (Key Missing)') ||
                     m.content.includes('Encrypted (Missing Sender Key)') ||
                     m.content.includes('Encryption Failed')
                 ));
@@ -701,17 +754,22 @@ export const useChatStore = create(
                         let finalContent = content;
                         let iv = null;
                         let encryptionVersion = 0;
+                        let resolvedSenderKeyId = null;
+                        let resolvedRecipientKeyId = null;
 
                         if (messageType === 'TEXT' && content && typeof content === 'string') {
                             const { activeRecipientId } = get();
                             if (activeRecipientId) {
                                 try {
-                                    const sharedKey = await getSharedSecret(activeRecipientId);
-                                    if (sharedKey) {
-                                        const encrypted = await encryptMessage(content, sharedKey);
+                                    const myCurrentKeyId = useAuthStore.getState().myCurrentKeyId;
+                                    const secretObj = await getSharedSecret(activeRecipientId, myCurrentKeyId, 'LATEST');
+                                    if (secretObj && secretObj.sharedKey) {
+                                        const encrypted = await encryptMessage(content, secretObj.sharedKey);
                                         finalContent = encrypted.ciphertext;
                                         iv = encrypted.iv;
                                         encryptionVersion = 1;
+                                        resolvedSenderKeyId = myCurrentKeyId;
+                                        resolvedRecipientKeyId = secretObj.theirKeyId;
                                     } else {
                                         return reject(new Error("E2EE Secret Key unresolvable. Message halted to prevent plaintext transmission."));
                                     }
@@ -727,6 +785,8 @@ export const useChatStore = create(
                             content: finalContent,
                             iv,
                             encryptionVersion,
+                            senderKeyId: resolvedSenderKeyId,
+                            recipientKeyId: resolvedRecipientKeyId,
                             messageType,
                             clientMessageId
                         };

@@ -47,8 +47,16 @@ const userSchema = new mongoose.Schema({
         default: []
     },
     publicKey: {
-        type: String, // E2EE Public Key (JWK JSON string)
+        type: String, // Legacy unversioned E2EE Public Key (JWK JSON string)
         default: null
+    },
+    publicKeys: {
+        type: [{
+            keyId: { type: String, required: true },
+            publicKey: { type: String, required: true },
+            createdAt: { type: Date, default: Date.now }
+        }],
+        default: []
     }
 }, { timestamps: true });
 
