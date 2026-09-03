@@ -708,13 +708,26 @@ export const useChatStore = create(
                     activeSocket.timeout(5000).emit("send_project_message", payload, (err, response) => {
                         if (err) {
                             console.warn("[Lifecycle] Message flush timeout... keeping in queue", err);
-                            activeSocket.disconnect();
-                            activeSocket.connect();
                         } else if (response && response.status === 'ok') {
                             set(state => {
                                 const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== payload.clientMessageId);
                                 const newMessages = state.messages.map(m => {
-                                    if (m.clientMessageId === payload.clientMessageId) return { ...m, status: 'SENT' };
+                                    if (m.clientMessageId === payload.clientMessageId) return { ...m, _id: response.messageId, status: 'SENT' };
+                                    return m;
+                                });
+                                const newCache = { ...state.messagesCache };
+                                if (payload.projectId) {
+                                    newCache[payload.projectId] = newMessages;
+                                }
+                                return { pendingMessages: newPending, messages: newMessages, messagesCache: newCache };
+                            });
+                        } else {
+                            // Backend explicitly rejected it (e.g., validation, size, auth) -- FAIL IT
+                            console.error("[Lifecycle] Message definitively rejected by server:", response);
+                            set(state => {
+                                const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== payload.clientMessageId);
+                                const newMessages = state.messages.map(m => {
+                                    if (m.clientMessageId === payload.clientMessageId) return { ...m, status: 'FAILED' };
                                     return m;
                                 });
                                 const newCache = { ...state.messagesCache };
@@ -866,7 +879,20 @@ export const useChatStore = create(
                                 });
                                 resolve(response);
                             } else {
-                                reject(new Error(response?.message || "Failed to send message."));
+                                // FAIL IT, server explicitly returned error
+                                set(state => {
+                                    const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                                    const newMsgs = state.messages.map(m => {
+                                        if (m.clientMessageId === clientMessageId) {
+                                            return { ...m, status: 'FAILED' };
+                                        }
+                                        return m;
+                                    });
+                                    const newCache = { ...state.messagesCache };
+                                    newCache[projectId] = newMsgs;
+                                    return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                                });
+                                reject(new Error(response?.error || response?.message || "Failed to send message."));
                             }
                         });
                     })();

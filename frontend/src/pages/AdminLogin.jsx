@@ -78,6 +78,7 @@ const AdminLogin = () => {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            autoComplete="email"
           />
           <input 
             type="password" 
@@ -86,6 +87,7 @@ const AdminLogin = () => {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            autoComplete="current-password"
           />
           <button type="submit" className="btn btn-secondary" style={{ width: '100%', color: 'var(--accent-color)', opacity: isLoading ? 0.7 : 1, cursor: isLoading ? 'not-allowed' : 'pointer' }} disabled={isLoading}>
             {isLoading ? loadingMessage : 'Access Dashboard'}

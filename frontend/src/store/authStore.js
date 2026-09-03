@@ -71,6 +71,42 @@ export const useAuthStore = create((set, get) => ({
                     localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
                 }
 
+                // SECURE ZERO-KNOWLEDGE MERGE: Always attempt to fetch and merge cloud backup if we have the password
+                let hasServerBackup = false;
+                try {
+                    const res = await fetch(`${BACKEND_URL}/api/auth/keys/backup`, { credentials: 'include' });
+                    if (res.ok) {
+                        const backupData = await res.json();
+                        if (backupData.encryptedKeyRing) {
+                            hasServerBackup = true;
+                            if (window.__tempLoginPassword && window.__tempLoginEmail) {
+                                const deriveKey = await deriveBackupKey(window.__tempLoginPassword, window.__tempLoginEmail);
+                                const decryptedRaw = await decryptMessage(backupData.encryptedKeyRing, backupData.encryptedKeyRingIv, deriveKey);
+                                const restoredRing = JSON.parse(decryptedRaw);
+
+                                // Merge cloud keys into local key ring so no history is lost
+                                let merged = false;
+                                for (const [kId, kData] of Object.entries(restoredRing.keys || {})) {
+                                    if (!storedKeyRing.keys[kId]) {
+                                        storedKeyRing.keys[kId] = kData;
+                                        merged = true;
+                                    }
+                                }
+                                // If local didn't have a current key but cloud did, adopt it
+                                if (!storedKeyRing.currentKeyId && restoredRing.currentKeyId) {
+                                    storedKeyRing.currentKeyId = restoredRing.currentKeyId;
+                                    merged = true;
+                                }
+                                if (merged) {
+                                    localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[E2EE] Failed checking/restoring backup from cloud', e);
+                }
+
                 if (storedKeyRing.currentKeyId && storedKeyRing.keys[storedKeyRing.currentKeyId]) {
                     const activePair = storedKeyRing.keys[storedKeyRing.currentKeyId];
                     const privateKey = await importPrivateKey(activePair.privateKeyJwk);
@@ -87,79 +123,51 @@ export const useAuthStore = create((set, get) => ({
                     }
 
                     return { privateKey, publicKeyJwk: activePair.publicKeyJwk, keyId: storedKeyRing.currentKeyId };
-                } else {
-                    // BEFORE giving up and burning historical keys, try fetching the server backup!
-                    let restoredRing = null;
-                    if (window.__tempLoginPassword && window.__tempLoginEmail) {
-                        try {
-                            const res = await fetch(`${BACKEND_URL}/api/auth/keys/backup`, { credentials: 'include' });
-                            if (res.ok) {
-                                const backupData = await res.json();
-                                if (backupData.encryptedKeyRing && backupData.encryptedKeyRingIv) {
-                                    const deriveKey = await deriveBackupKey(window.__tempLoginPassword, window.__tempLoginEmail);
-                                    const decryptedRaw = await decryptMessage(backupData.encryptedKeyRing, backupData.encryptedKeyRingIv, deriveKey);
-                                    restoredRing = JSON.parse(decryptedRaw);
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('[E2EE] Failed restoring backup from cloud', e);
-                        }
-                    }
-
-                    if (restoredRing && restoredRing.currentKeyId) {
-                        // SUCCESS! We restored the keys from the server without the server knowing them!
-                        storedKeyRing = restoredRing;
-                        localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
-
-                        const activePair = storedKeyRing.keys[storedKeyRing.currentKeyId];
-                        const privateKey = await importPrivateKey(activePair.privateKeyJwk);
-                        set({
-                            myPrivateKey: privateKey,
-                            myPublicKeyJwk: activePair.publicKeyJwk,
-                            myCurrentKeyId: storedKeyRing.currentKeyId,
-                            myKeyRing: storedKeyRing
-                        });
-                        return { privateKey, publicKeyJwk: activePair.publicKeyJwk, keyId: storedKeyRing.currentKeyId };
-                    }
-
-                    // Generate new keypair securely scoped to this exact user
-                    const keyPair = await generateKeyPair();
-                    const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
-                    const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
-                    const newKeyId = generateKeyId();
-
-                    storedKeyRing.currentKeyId = newKeyId;
-                    storedKeyRing.keys[newKeyId] = {
-                        privateKeyJwk: privKeyJwk,
-                        publicKeyJwk: pubKeyJwk
-                    };
-
-                    localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
-
-                    set({
-                        myPrivateKey: keyPair.privateKey,
-                        myPublicKeyJwk: pubKeyJwk,
-                        myCurrentKeyId: newKeyId,
-                        myKeyRing: storedKeyRing
-                    });
-
-                    if (window.__tempLoginPassword && window.__tempLoginEmail) {
-                        get()._backupEncryptedKeyRing(storedKeyRing, window.__tempLoginPassword, window.__tempLoginEmail);
-                    }
-
-                    return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk, keyId: newKeyId };
                 }
+
+                if (hasServerBackup) {
+                    // We must NOT generate a new key because a cloud backup exists, but we can't unlock it!
+                    console.warn('[E2EE] Critical: Server has backup but no password available to unlock! Forcing Logout.');
+                    get().logout();
+                    throw new Error('E2EE_UNLOCK_REQUIRED');
+                }
+
+                // Generate new keypair securely scoped to this exact user
+                const keyPair = await generateKeyPair();
+                const pubKeyJwk = await exportPublicKey(keyPair.publicKey);
+                const privKeyJwk = await exportPrivateKey(keyPair.privateKey);
+                const newKeyId = generateKeyId();
+
+                storedKeyRing.currentKeyId = newKeyId;
+                storedKeyRing.keys[newKeyId] = {
+                    privateKeyJwk: privKeyJwk,
+                    publicKeyJwk: pubKeyJwk
+                };
+
+                localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
+
+                set({
+                    myPrivateKey: keyPair.privateKey,
+                    myPublicKeyJwk: pubKeyJwk,
+                    myCurrentKeyId: newKeyId,
+                    myKeyRing: storedKeyRing
+                });
+
+                // Since it's a completely new key, attempt background backup IF we have credentials
+                if (window.__tempLoginPassword && window.__tempLoginEmail) {
+                    get()._backupEncryptedKeyRing(storedKeyRing, window.__tempLoginPassword, window.__tempLoginEmail);
+                }
+
+                initKeysPromise = null; // Clear promise so future calls re-evaluate if needed
+                return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk, keyId: newKeyId };
             } catch (err) {
-                console.error('[E2EE] Failed to initialize keypair:', err);
+                console.error('[E2EE] Failed to initialize keys:', err);
+                initKeysPromise = null;
                 return null;
             }
         })();
 
-        try {
-            return await initKeysPromise;
-        } finally {
-            initKeysPromise = null;
-        }
+        return initKeysPromise;
     },
 
     _uploadPublicKey: async (keyData) => {

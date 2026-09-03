@@ -72,7 +72,7 @@ export const getProjectMessages = async (req, res) => {
         }
 
         const messages = await Message.find(query)
-            .select('sender content iv encryptionVersion messageType replyTo clientMessageId edited deleted reactions status createdAt callMeta')
+            .select('sender content iv encryptionVersion messageType replyTo clientMessageId edited deleted reactions status createdAt callMeta senderKeyId recipientKeyId')
             .populate('sender', 'name email profilePicture')
             .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } })
             .sort({ createdAt: -1, _id: -1 })
@@ -124,7 +124,7 @@ export const recoverRecentMessages = async (req, res) => {
         if (!isMember) return res.status(403).json({ message: 'Unauthorized project recovery' });
 
         const messages = await Message.find({ projectId })
-            .select('sender content iv encryptionVersion messageType replyTo clientMessageId edited deleted reactions status createdAt callMeta')
+            .select('sender content iv encryptionVersion messageType replyTo clientMessageId edited deleted reactions status createdAt callMeta senderKeyId recipientKeyId')
             .populate('sender', 'name email profilePicture')
             .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } })
             .sort({ createdAt: -1, _id: -1 })

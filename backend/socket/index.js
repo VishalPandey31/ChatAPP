@@ -213,11 +213,15 @@ export const socketHandler = (io) => {
                 const authenticatedUserId = connectedUsers.get(socket.id);
                 if (!authenticatedUserId || authenticatedUserId !== senderId) {
                     console.warn('[Security] Blocked spoofed senderId from socket:', socket.id);
+                    if (typeof callback === 'function') callback({ status: 'error', error: 'Unauthorized sender' });
                     return;
                 }
 
                 const sender = await User.findById(senderId);
-                if (!sender || !projectId) return;
+                if (!sender || !projectId) {
+                    if (typeof callback === 'function') callback({ status: 'error', error: 'Invalid sender or project' });
+                    return;
+                }
 
                 if (sender.role === 'USER' && (sender.approvalStatus !== 'APPROVED' || sender.accountStatus !== 'ACTIVE')) {
                     return;

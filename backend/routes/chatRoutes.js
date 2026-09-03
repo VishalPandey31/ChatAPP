@@ -8,7 +8,7 @@ router.use(authenticateUser, requireApprovedUser);
 
 // IMPORTANT: static-prefix routes (/project/...) MUST be registered before
 // the wildcard route (/:userId) so Express doesn't swallow them as userId="project"
-router.get('/project/:projectId/recover', requireAdmin, recoverRecentMessages);
+router.get('/project/:projectId/recover', recoverRecentMessages);
 router.get('/project/:projectId', getProjectMessages);
 router.delete('/project/:projectId/clear', clearProjectChat);
 

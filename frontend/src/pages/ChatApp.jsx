@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useProjectStore } from '../store/projectStore';
-import { Loader2, Plus, Users, Send, Settings, Check, LogOut, CheckCheck, MapPin, Briefcase, Star, Search, Shield, Info, Reply, X, User as UserIcon, Building2, Pencil, Trash2, Camera, Smile, Image as ImageIcon, Clock, Copy, MessageSquare } from 'lucide-react';
+import { Loader2, Plus, Users, Send as SendIcon, Settings, Check, LogOut, CheckCheck, MapPin, Briefcase, Star, Search, Shield, Info, Reply, X, User as UserIcon, Building2, Pencil, Trash2, Camera, Smile, Image as ImageIcon, Clock, Copy, MessageSquare, MoreVertical, BarChart3, RefreshCcw, UserCircle, ChevronDown } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
 import EmojiPicker from 'emoji-picker-react';
@@ -541,7 +541,7 @@ const ChatApp = () => {
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 20 * 1024 * 1024) return alert('File is too large! Maximum 20MB.');
+    if (file.size > 10 * 1024 * 1024) return alert('File is too large! Maximum 10MB.');
     
     const reader = new FileReader();
     reader.onload = (event) => {
