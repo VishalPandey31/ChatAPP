@@ -524,6 +524,22 @@ const ChatApp = () => {
             } else {
                 // Async send in background without blocking UI
                 sendProjectMessage(projectId, currentMessage, replyingTo?.id, 'TEXT').catch(err => console.error(err));
+                
+                if (currentMessage.toLowerCase().includes('@ai')) {
+                    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+                    fetch(`${BACKEND_URL}/api/chats/ask-ai`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt: currentMessage })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.response) {
+                            sendProjectMessage(projectId, "🤖 AI:\n\n" + data.response, null, 'TEXT').catch(err => console.error(err));
+                        }
+                    })
+                    .catch(e => console.error("AI Error:", e));
+                }
             }
         }
         
@@ -812,6 +828,7 @@ const ChatApp = () => {
 
                   const senderId = typeof msg.sender === 'object' ? msg.sender?._id : msg.sender;
                   const isMine = senderId === user._id;
+                  const isAI = typeof msg.content === 'string' && msg.content.startsWith('🤖 AI:');
                   
                   // Safe fallback parsing for incoming messages regardless of backend Mongoose population status
                   let senderDisplay = 'Teammate';
@@ -895,7 +912,7 @@ const ChatApp = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
                           {!isMine && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2563EB' }} />}
                           <span style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
-                            {isMine ? (user.name || user.email.split('@')[0]) : senderDisplay}
+                            {isAI ? 'AI Assistant' : (isMine ? (user.name || user.email.split('@')[0]) : senderDisplay)}
                           </span>
                           <span style={{ fontSize: '11px', color: '#64748B', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
@@ -934,8 +951,8 @@ const ChatApp = () => {
                             onTouchCancel={handleBubbleTouchEnd}
                             onContextMenu={(e) => { e.preventDefault(); setActiveMenuMsgId(msg._id); }}
                             style={{ 
-                            background: isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F', 
-                            color: isMine ? '#ffffff' : '#F8FAFC',
+                            background: isAI ? 'linear-gradient(135deg, #4C1D95 0%, #312E81 100%)' : (isMine ? 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' : '#151E2F'), 
+                            color: isMine || isAI ? '#ffffff' : '#F8FAFC',
                             padding: '12px 16px', 
                             borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                             border: isMine ? 'none' : '1px solid #243044',

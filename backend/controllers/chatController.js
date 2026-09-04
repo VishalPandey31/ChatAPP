@@ -140,3 +140,43 @@ export const recoverRecentMessages = async (req, res) => {
         res.status(500).json({ message: 'Error recovering project messages' });
     }
 };
+
+export const askAI = async (req, res) => {
+    try {
+        const { prompt } = req.body;
+        if (!prompt) {
+            return res.status(400).json({ message: 'Prompt is required' });
+        }
+
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ message: 'AI is not configured on the server.' });
+        }
+
+        const fetchResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }]
+            })
+        });
+
+        if (!fetchResponse.ok) {
+            const errData = await fetchResponse.json().catch(() => ({}));
+            console.error('Gemini API Error:', errData);
+            return res.status(502).json({ message: 'Failed to get AI response' });
+        }
+
+        const data = await fetchResponse.json();
+        const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!aiText) {
+            return res.status(500).json({ message: 'Invalid AI response format' });
+        }
+
+        res.status(200).json({ response: aiText });
+    } catch (err) {
+        console.error('Error in askAI:', err);
+        res.status(500).json({ message: 'Internal server error during AI request' });
+    }
+};

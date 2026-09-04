@@ -705,9 +705,18 @@ export const useChatStore = create(
 
                 pendingMessages.forEach(({ payload, optimisticMsg }) => {
                     // Force timeout tracking on reconnect buffer flush to prevent hanging again
-                    activeSocket.timeout(5000).emit("send_project_message", payload, (err, response) => {
+                    // Extended to 60 seconds to allow heavy Base64 image uploads to complete smoothly
+                    activeSocket.timeout(60000).emit("send_project_message", payload, (err, response) => {
                         if (err) {
-                            console.warn("[Lifecycle] Message flush timeout... keeping in queue", err);
+                            // Timeout on flush: set to FAILED to prevent hanging/poison-loops
+                            console.error("[Lifecycle] Flush timeout. Breaking the suspension by failing the message.");
+                            set(state => {
+                                const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== payload.clientMessageId);
+                                const newMessages = state.messages.map(m => m.clientMessageId === payload.clientMessageId ? { ...m, status: 'FAILED' } : m);
+                                const newCache = { ...state.messagesCache };
+                                if (payload.projectId) newCache[payload.projectId] = newMessages;
+                                return { pendingMessages: newPending, messages: newMessages, messagesCache: newCache };
+                            });
                         } else if (response && response.status === 'ok') {
                             set(state => {
                                 const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== payload.clientMessageId);
@@ -855,11 +864,18 @@ export const useChatStore = create(
                             return reject(new Error("Socket disconnected. Message queued for when connection restores."));
                         }
 
-                        socket.timeout(5000).emit("send_project_message", payload, (err, response) => {
+                        // Extended upload window for massive 13MB strings on sluggish mobile uplinks
+                        socket.timeout(60000).emit("send_project_message", payload, (err, response) => {
                             if (err) {
-                                console.warn("[Lifecycle] Zombie socket detected on emit timeout. Enforcing reconnect.", err);
-                                socket.disconnect();
-                                socket.connect();
+                                console.warn("[Lifecycle] Emit timeout. Message failed to reach server.", err);
+                                // Prevent infinite hanging: fail the message if it timeout
+                                set(state => {
+                                    const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                                    const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'FAILED' } : m);
+                                    const newCache = { ...state.messagesCache };
+                                    newCache[projectId] = newMsgs;
+                                    return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                                });
                                 reject(new Error("Message send timeout"));
                             } else if (response && response.status === 'ok') {
                                 // Wipe from pending list and transition SENDING -> SENT
