@@ -153,18 +153,34 @@ export const askAI = async (req, res) => {
             return res.status(500).json({ message: 'AI is not configured on the server.' });
         }
 
-        const fetchResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
-            })
-        });
+        const modelsToTry = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.1-flash'];
+        let fetchResponse;
+        let lastErrData = null;
 
-        if (!fetchResponse.ok) {
-            const errData = await fetchResponse.json().catch(() => ({}));
-            console.error('Gemini API Error:', errData);
-            return res.status(502).json({ message: 'Failed to get AI response' });
+        for (const model of modelsToTry) {
+            fetchResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
+            });
+
+            if (fetchResponse.ok) {
+                break; // Found a working model!
+            }
+
+            lastErrData = await fetchResponse.json().catch(() => ({}));
+            console.error(`Gemini API Error with ${model}:`, lastErrData);
+
+            // If the error isn't related to demand (503) or rate limits (429), break immediately 
+            if (lastErrData?.error?.code !== 503 && lastErrData?.error?.code !== 429) {
+                break;
+            }
+        }
+
+        if (!fetchResponse || !fetchResponse.ok) {
+            return res.status(502).json({ message: lastErrData?.error?.message || 'Failed to get AI response' });
         }
 
         const data = await fetchResponse.json();
