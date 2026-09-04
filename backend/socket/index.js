@@ -122,11 +122,13 @@ export const socketHandler = (io) => {
 
                 if (!sender || !receiver) return;
 
-                // Security check: normal user cannot chat with another normal user unapproved, 
-                // actually only ADMIN <-> USER is 1:1, or approved users.
+                /* 
+                // Security check disabled: Allow standard users to chat without admin approval
                 if (sender.role === 'USER' && (sender.approvalStatus !== 'APPROVED' || sender.accountStatus !== 'ACTIVE')) {
+                    socket.emit("message_error", { error: "Sender is not approved or active" });
                     return;
                 }
+                */
 
                 const msg = await Message.create({
                     sender: senderId,
@@ -223,9 +225,13 @@ export const socketHandler = (io) => {
                     return;
                 }
 
+                /*
+                // Security check disabled: Allow standard users to chat without admin approval
                 if (sender.role === 'USER' && (sender.approvalStatus !== 'APPROVED' || sender.accountStatus !== 'ACTIVE')) {
+                    if (typeof callback === 'function') callback({ status: 'error', error: 'User is not approved or active' });
                     return;
                 }
+                */
 
                 // Create message — now with E2EE ciphertext and exact Key Version metadata fields
                 let msgData = {
