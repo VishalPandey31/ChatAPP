@@ -109,6 +109,7 @@ const ChatApp = () => {
   
   const [recoveryState, setRecoveryState] = useState(null);
   const [isSending, setIsSending] = useState(false);
+  const [aiStatus, setAiStatus] = useState(null);
 
   const handleRecoverMessages = async () => {
       try {
@@ -526,6 +527,7 @@ const ChatApp = () => {
                 sendProjectMessage(projectId, currentMessage, replyingTo?.id, 'TEXT').catch(err => console.error(err));
                 
                 if (currentMessage.toLowerCase().includes('@ai')) {
+                    setAiStatus({ type: 'success', text: 'AI is triggered, replying...' });
                     const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
                     fetch(`${BACKEND_URL}/api/chats/ask-ai`, {
                         method: 'POST',
@@ -533,13 +535,22 @@ const ChatApp = () => {
                         credentials: 'include',
                         body: JSON.stringify({ prompt: currentMessage })
                     })
-                    .then(res => res.json())
+                    .then(async res => {
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) throw new Error(data.message || 'Server error or missing Gemini key');
+                        return data;
+                    })
                     .then(data => {
+                        setAiStatus(null);
                         if (data.response) {
                             sendProjectMessage(projectId, "🤖 AI:\n\n" + data.response, null, 'TEXT').catch(err => console.error(err));
                         }
                     })
-                    .catch(e => console.error("AI Error:", e));
+                    .catch(e => {
+                        console.error("AI Error:", e);
+                        setAiStatus({ type: 'error', text: 'AI Error: ' + e.message });
+                        setTimeout(() => setAiStatus(null), 5000);
+                    });
                 }
             }
         }
@@ -622,6 +633,19 @@ const ChatApp = () => {
 
       {/* FULL SCREEN CHAT AREA */}
       <div className="chat-main-area" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#0B1120', overflow: 'hidden', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+      
+      {aiStatus && (
+        <div style={{
+          position: 'absolute', top: '70px', left: '50%', transform: 'translateX(-50%)', zIndex: 100,
+          background: aiStatus.type === 'error' ? 'rgba(239, 68, 68, 0.9)' : 'rgba(16, 185, 129, 0.9)',
+          backdropFilter: 'blur(10px)', color: 'white', padding: '10px 20px', borderRadius: '24px',
+          display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+          fontFamily: '"Inter", sans-serif', fontSize: '13px', fontWeight: '500', animation: 'fadeInDown 0.3s ease'
+        }}>
+          {aiStatus.type === 'error' ? '⚠️' : '✨'}
+          {aiStatus.text}
+        </div>
+      )}
         
         {/* Chat Header */}
         <div className="chat-header" style={{ flexShrink: 0, position: 'relative', zIndex: 50, padding: '16px 24px', borderBottom: '1px solid #243044', backgroundColor: '#0B1120', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
