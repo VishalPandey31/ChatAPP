@@ -530,6 +530,7 @@ const ChatApp = () => {
                     fetch(`${BACKEND_URL}/api/chats/ask-ai`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
                         body: JSON.stringify({ prompt: currentMessage })
                     })
                     .then(res => res.json())
@@ -557,15 +558,42 @@ const ChatApp = () => {
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) return alert('File is too large! Maximum 10MB.');
+    if (file.size > 25 * 1024 * 1024) return alert('File is too large! Maximum 25MB allowed.');
     
     const reader = new FileReader();
     reader.onload = (event) => {
-       setPendingImage(event.target.result);
-       updateSendButtonStyles(textareaRef.current?.value || '', event.target.result);
+       const img = new window.Image();
+       img.onload = () => {
+           const canvas = document.createElement('canvas');
+           let { width, height } = img;
+           const MAX_SIZE = 1200;
+           
+           if (width > height) {
+               if (width > MAX_SIZE) {
+                   height = Math.round(height * (MAX_SIZE / width));
+                   width = MAX_SIZE;
+               }
+           } else {
+               if (height > MAX_SIZE) {
+                   width = Math.round(width * (MAX_SIZE / height));
+                   height = MAX_SIZE;
+               }
+           }
+           
+           canvas.width = width;
+           canvas.height = height;
+           const ctx = canvas.getContext('2d');
+           ctx.drawImage(img, 0, 0, width, height);
+           
+           // Aggressive optimization: 0.6 quality JPEG
+           const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+           setPendingImage(compressedDataUrl);
+           updateSendButtonStyles(textareaRef.current?.value || '', compressedDataUrl);
+       };
+       img.src = event.target.result;
     };
     reader.readAsDataURL(file);
-    e.target.value = ''; // reset so same file can be chosen again
+    e.target.value = ''; 
   };
   
   const handleClearChat = () => {
