@@ -14,10 +14,10 @@ jobs:
       - name: Ping API Health Endpoint
         run: |
           echo "Pinging backend to keep awake..."
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://chatapp-backend-s0td.onrender.com/api/health || true)
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://chatapp-v6ug.onrender.com/api/health || true)
           echo "Status: $HTTP_STATUS"
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "Health endpoint returned $HTTP_STATUS, pinging root..."
-            curl -s -o /dev/null --max-time 30 https://chatapp-backend-s0td.onrender.com/ || true
+            curl -s -o /dev/null --max-time 30 https://chatapp-v6ug.onrender.com/ || true
           fi
           echo "Ping completed successfully"
