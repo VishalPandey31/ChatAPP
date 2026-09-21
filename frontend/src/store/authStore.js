@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import Cookies from 'js-cookie';
 import { useProjectStore } from './projectStore';
 import { useChatStore, clearUserEncryptionCache } from './chatStore';
+import { apiFetch, setAuthToken, getAuthToken } from '../utils/api';
 import {
     generateKeyPair,
     exportPublicKey,
@@ -74,7 +75,7 @@ export const useAuthStore = create((set, get) => ({
                 // SECURE ZERO-KNOWLEDGE MERGE: Always attempt to fetch and merge cloud backup if we have the password
                 let hasServerBackup = false;
                 try {
-                    const res = await fetch(`${BACKEND_URL}/api/auth/keys/backup`, { credentials: 'include' });
+                    const res = await apiFetch('/api/auth/keys/backup');
                     if (res.ok) {
                         const backupData = await res.json();
                         if (backupData.encryptedKeyRing) {
@@ -172,15 +173,14 @@ export const useAuthStore = create((set, get) => ({
 
     _uploadPublicKey: async (keyData) => {
         try {
-            // keyData = { publicKeyJwk, keyId }
-            await fetch(`${BACKEND_URL}/api/auth/keys/upload`, {
+            if (!keyData) return;
+            const payload = typeof keyData === 'string' 
+                ? { publicKey: keyData, keyId: 'legacy' } 
+                : { publicKey: keyData.publicKeyJwk || keyData.publicKey, keyId: keyData.keyId };
+
+            await apiFetch('/api/auth/keys/upload', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    publicKey: keyData.publicKeyJwk,
-                    keyId: keyData.keyId
-                })
+                body: JSON.stringify(payload)
             });
         } catch (err) {
             console.error('[E2EE] Failed to upload public key:', err);
@@ -195,10 +195,8 @@ export const useAuthStore = create((set, get) => ({
 
             const rawCiphertext = await encryptMessage(JSON.stringify(keyRing), deriveKey, ivBuffer);
 
-            await fetch(`${BACKEND_URL}/api/auth/keys/backup`, {
+            await apiFetch('/api/auth/keys/backup', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
                 body: JSON.stringify({
                     encryptedKeyRing: rawCiphertext,
                     encryptedKeyRingIv: ivBase64
@@ -213,14 +211,16 @@ export const useAuthStore = create((set, get) => ({
     login: async (credentials, isAdmin = false) => {
         try {
             const endpoint = isAdmin ? '/api/auth/admin/login' : '/api/auth/user/login';
-            const res = await fetch(`${BACKEND_URL}${endpoint}`, {
+            const res = await apiFetch(endpoint, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
                 body: JSON.stringify(credentials)
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
+
+            if (data.token) {
+                setAuthToken(data.token);
+            }
 
             // Expose temporarily for PBKDF2
             window.__tempLoginPassword = credentials.password;
@@ -237,7 +237,7 @@ export const useAuthStore = create((set, get) => ({
             return true;
         } catch (err) {
             console.error(err);
-            if (err.message === 'Failed to fetch' || err.message.includes('NetworkError')) {
+            if (err.message === 'Failed to fetch' || err.message?.includes('NetworkError')) {
                 throw new Error('Failed to fetch');
             }
             throw err;
@@ -245,14 +245,16 @@ export const useAuthStore = create((set, get) => ({
     },
     registerAdmin: async (credentials) => {
         try {
-            const res = await fetch(`${BACKEND_URL}/api/auth/admin/register`, {
+            const res = await apiFetch('/api/auth/admin/register', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
                 body: JSON.stringify(credentials)
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
+
+            if (data.token) {
+                setAuthToken(data.token);
+            }
 
             // Expose temporarily for PBKDF2
             window.__tempLoginPassword = credentials.password;
@@ -269,7 +271,7 @@ export const useAuthStore = create((set, get) => ({
             return true;
         } catch (err) {
             console.error(err);
-            if (err.message === 'Failed to fetch' || err.message.includes('NetworkError')) {
+            if (err.message === 'Failed to fetch' || err.message?.includes('NetworkError')) {
                 throw new Error('Failed to fetch');
             }
             throw err;
@@ -277,40 +279,40 @@ export const useAuthStore = create((set, get) => ({
     },
     logout: async (isUnload = false) => {
         try {
-            await fetch(`${BACKEND_URL}/api/auth/logout`, {
+            await apiFetch('/api/auth/logout', {
                 method: 'POST',
-                credentials: 'include',
                 keepalive: isUnload
-            });
+            }).catch(() => {});
             const socket = get().socket;
             if (socket) socket.disconnect();
+            setAuthToken(null);
             set({ user: null, socket: null, onlineUsers: [], myPrivateKey: null, myPublicKeyJwk: null });
             Cookies.remove('token');
             localStorage.removeItem('chatapp-offline-cache'); // Force clear persistent cache on logout
-            // Note: we intentionally keep the private key in localStorage for session resumption
-            // but it regenerates each login anyway (ephemeral design)
 
             import('../utils/pushService').then(({ unsubscribeFromPushNotifications }) => {
                 unsubscribeFromPushNotifications();
-            });
+            }).catch(() => {});
         } catch (err) {
             console.error(err);
         }
     },
     checkAuth: async () => {
         try {
-            const res = await fetch(`${BACKEND_URL}/api/auth/me`, { credentials: 'include' });
+            const res = await apiFetch('/api/auth/me');
             if (!res.ok) {
                 Cookies.remove('token');
+                setAuthToken(null);
                 set({ user: null, isCheckingAuth: false });
                 return;
             }
             const data = await res.json();
+            if (data.token) setAuthToken(data.token);
             set({ user: data, isCheckingAuth: false });
 
             get().connectSocket();
             get()._initE2EEKeys().then(keys => {
-                if (keys) get()._uploadPublicKey(keys.publicKeyJwk);
+                if (keys && keys.keyId) get()._uploadPublicKey(keys);
             });
         } catch (err) {
             console.error(err);
@@ -319,16 +321,34 @@ export const useAuthStore = create((set, get) => ({
     },
     connectSocket: () => {
         const user = get().user;
-        if (get().socket) return; // Prevent multiple socket initializations
+        if (!user) return;
 
+        const existingSocket = get().socket;
+        if (existingSocket && existingSocket.connected) {
+            return; // Socket already connected and healthy
+        }
+        if (existingSocket) {
+            existingSocket.disconnect();
+        }
+
+        const token = getAuthToken();
         const socket = io(BACKEND_URL, {
+            auth: { token, userId: user._id },
             query: { userId: user._id },
-            autoConnect: false // Explicitly disable autoConnect to attach listeners first
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            autoConnect: false
         });
 
         socket.on('connect', () => {
-            socket.emit('join', user._id);
-            // Trigger offline queue flush safely to avoid circular dependency
+            const currentUserId = get().user?._id || user._id;
+            if (currentUserId) {
+                socket.emit('join', currentUserId);
+            }
+            // Trigger offline queue flush safely
             import('./chatStore').then(module => {
                 module.useChatStore.getState().flushOfflineQueue();
             }).catch(err => console.warn('[E2EE] Failed to lazy-load chatStore for flush', err));
@@ -336,16 +356,11 @@ export const useAuthStore = create((set, get) => ({
 
         socket.on('initial_online_users', (userIds) => {
             set({ onlineUsers: userIds });
-            // DO NOT clear encryption cache here. The ECDH shared secret is
-            // deterministic for a given key pair. Clearing it forces re-derivation
-            // which, if the other user's key pair changed, produces the WRONG key
-            // and makes ALL old messages undecryptable.
         });
 
         socket.on('user_status', ({ userId, status, lastSeen }) => {
             if (status === 'online') {
                 set((state) => ({ onlineUsers: [...new Set([...state.onlineUsers, userId])] }));
-                // DO NOT clear encryption cache on online status changes.
             } else {
                 set((state) => {
                     const newStatus = { onlineUsers: state.onlineUsers.filter(id => id !== userId) };
@@ -365,7 +380,7 @@ export const useAuthStore = create((set, get) => ({
             get().logout();
         });
 
-        socket.connect(); // Connect AFTER listeners are attached
+        socket.connect();
         set({ socket });
     }
 }));

@@ -10,7 +10,8 @@ const generateToken = (userId, res) => {
     res.cookie('token', token, {
         httpOnly: true,
         sameSite: 'none',
-        secure: true
+        secure: true,
+        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days persistent cookie
     });
 
     return token;
@@ -52,11 +53,12 @@ export const registerAdmin = async (req, res) => {
         });
 
         if (user) {
-            generateToken(user._id, res);
+            const token = generateToken(user._id, res);
             res.status(201).json({
                 _id: user._id,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                token
             });
         } else {
             res.status(400).json({ message: 'Invalid user data' });
@@ -82,13 +84,14 @@ export const loginAdmin = async (req, res) => {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
 
-        generateToken(user._id, res);
+        const token = generateToken(user._id, res);
 
         res.json({
             _id: user._id,
             email: user.email,
             role: user.role,
-            approvalStatus: user.approvalStatus
+            approvalStatus: user.approvalStatus,
+            token
         });
     } catch (error) {
         console.error(error);
@@ -117,7 +120,7 @@ export const loginUser = async (req, res) => {
 
         // Regardless of pending/approved, we generate a token so the frontend knows who is logged in.
         // Access to actual chat API is protected by `requireApprovedUser` middleware.
-        generateToken(user._id, res);
+        const token = generateToken(user._id, res);
 
         // If still pending, we will tell the frontend so it shows the waiting screen.
         // Note: The specific real-time logic for notifying admin will be in the route/service when this is called.
@@ -128,7 +131,8 @@ export const loginUser = async (req, res) => {
             name: user.name,
             role: user.role,
             approvalStatus: user.approvalStatus,
-            accountStatus: user.accountStatus
+            accountStatus: user.accountStatus,
+            token
         });
     } catch (error) {
         console.error(error);

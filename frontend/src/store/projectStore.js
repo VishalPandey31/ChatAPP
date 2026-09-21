@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { apiFetch } from '../utils/api';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
@@ -10,7 +11,7 @@ export const useProjectStore = create((set) => ({
     fetchProjects: async () => {
         set({ isLoading: true, error: null });
         try {
-            const res = await fetch(`${BACKEND_URL}/api/projects`, { credentials: 'include' });
+            const res = await apiFetch('/api/projects');
             if (!res.ok) throw new Error('Failed to fetch projects');
             const data = await res.json();
 
@@ -42,10 +43,8 @@ export const useProjectStore = create((set) => ({
     createProject: async (name) => {
         set({ isCreating: true, error: null });
         try {
-            const res = await fetch(`${BACKEND_URL}/api/projects`, {
+            const res = await apiFetch('/api/projects', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
                 body: JSON.stringify({ name })
             });
             const data = await res.json();
@@ -61,7 +60,7 @@ export const useProjectStore = create((set) => ({
 
     deleteProject: async (projectId) => {
         try {
-            await fetch(`${BACKEND_URL}/api/projects/${projectId}`, { method: 'DELETE', credentials: 'include' });
+            await apiFetch(`/api/projects/${projectId}`, { method: 'DELETE' });
             set((state) => ({ projects: state.projects.filter(p => p._id !== projectId) }));
         } catch (error) {
             console.error("Failed to delete project:", error);
@@ -70,9 +69,8 @@ export const useProjectStore = create((set) => ({
 
     toggleScreenshotProtection: async (projectId) => {
         try {
-            const res = await fetch(`${BACKEND_URL}/api/projects/${projectId}/screenshot-protection`, {
-                method: 'PUT',
-                credentials: 'include'
+            const res = await apiFetch(`/api/projects/${projectId}/screenshot-protection`, {
+                method: 'PUT'
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useProjectStore } from '../store/projectStore';
+import { apiFetch } from '../utils/api';
 import { Loader2, Plus, Users, Send as SendIcon, Settings, Check, LogOut, CheckCheck, MapPin, Briefcase, Star, Search, Shield, Info, Reply, X, User as UserIcon, Building2, Pencil, Trash2, Camera, Smile, Image as ImageIcon, Clock, Copy, MessageSquare, MoreVertical, BarChart3, RefreshCcw, UserCircle, ChevronDown } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
@@ -96,6 +97,7 @@ const ChatApp = () => {
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
   const [timeTicker, setTimeTicker] = useState(Date.now());
   const [showExitModal, setShowExitModal] = useState(false);
+  const [inputText, setInputText] = useState('');
   const activeMenuRef = useRef(null);
   const messagesEndRef = useRef(null);
   const isScrolledUpRef = useRef(false);
@@ -110,6 +112,13 @@ const ChatApp = () => {
   const [recoveryState, setRecoveryState] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [aiStatus, setAiStatus] = useState(null);
+
+  // Auto-redirect to first project if user navigates to /chat directly
+  useEffect(() => {
+    if (!projectId && projects && projects.length > 0) {
+      navigate(`/chat/${projects[0]._id}`, { replace: true });
+    }
+  }, [projectId, projects, navigate]);
 
   const handleRecoverMessages = async () => {
       try {
@@ -458,20 +467,13 @@ const ChatApp = () => {
   }, [messages]);
 
   const updateSendButtonStyles = (val, img = pendingImage) => {
-      const btn = document.getElementById('chat-send-btn');
-      if (btn) {
-          const hasText = Boolean(val.trim()) || Boolean(img);
-          btn.disabled = !hasText;
-          btn.style.backgroundColor = hasText ? '#2563EB' : '#1E293B';
-          btn.style.color = hasText ? 'white' : '#64748B';
-          btn.style.boxShadow = hasText ? '0 2px 8px rgba(37, 99, 235, 0.4)' : 'none';
-          btn.style.cursor = hasText ? 'pointer' : 'default';
-      }
+      // Maintained for backward compatibility; button state is now fully reactive
+      setInputText(val);
   };
 
   const handleTyping = (e) => {
       const val = e.target.value;
-      updateSendButtonStyles(val);
+      setInputText(val);
       
       if (textareaRef.current) {
           textareaRef.current.style.height = 'auto';
@@ -479,15 +481,16 @@ const ChatApp = () => {
           textareaRef.current.style.height = `${newHeight}px`;
       }
 
-      if (socket && projectId) {
+      const activeProject = projectId || (projects && projects[0] ? projects[0]._id : null);
+      if (socket && activeProject && user) {
           if (!isTypingRef.current) {
               isTypingRef.current = true;
-              socket.emit("typing_project", { senderId: user._id, projectId, name: user.name || user.email.split('@')[0] });
+              socket.emit("typing_project", { senderId: user._id, projectId: activeProject, name: user.name || user.email?.split('@')[0] || 'User' });
           }
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
           typingTimeoutRef.current = setTimeout(() => {
               isTypingRef.current = false;
-              socket.emit("stop_typing_project", { senderId: user._id, projectId });
+              socket.emit("stop_typing_project", { senderId: user._id, projectId: activeProject });
           }, 1500);
       }
   };
@@ -495,44 +498,49 @@ const ChatApp = () => {
   const handleSend = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (isSending) return;
-    const currentMessage = textareaRef.current?.value || '';
+
+    const currentMessage = (textareaRef.current?.value || inputText || '').trim();
+    const activeProject = projectId || (projects && projects[0] ? projects[0]._id : null);
     
     // Check if empty (no image and no text)
-    if (!projectId) return;
-    if (!currentMessage.trim() && !pendingImage) return;
+    if (!currentMessage && !pendingImage) return;
+
+    if (!activeProject) {
+        alert("Please select or open a project chat to send messages.");
+        return;
+    }
 
     setIsSending(true);
+    // Anti-hang safety timeout: under NO circumstances allow isSending to stay true for > 5s
+    const unlockTimer = setTimeout(() => setIsSending(false), 5000);
 
     try {
         setReplyingTo(null);
         setShowEmojiPicker(false);
+        setInputText('');
         if (textareaRef.current) {
             textareaRef.current.value = '';
             textareaRef.current.style.height = 'auto'; 
         }
         if (fileInputRef.current) fileInputRef.current.value = '';
-        updateSendButtonStyles('');
         
         if (pendingImage) {
-            sendProjectMessage(projectId, pendingImage, replyingTo?.id, 'IMAGE').catch(err => console.error(err));
+            sendProjectMessage(activeProject, pendingImage, replyingTo?.id, 'IMAGE').catch(err => console.error(err));
             setPendingImage(null);
         }
         
-        if (currentMessage.trim()) {
+        if (currentMessage) {
             if (editingMessage && !pendingImage) {
-                await useChatStore.getState().editProjectMessage(editingMessage._id, projectId, currentMessage);
+                await useChatStore.getState().editProjectMessage(editingMessage._id, activeProject, currentMessage);
                 setEditingMessage(null);
             } else {
                 // Async send in background without blocking UI
-                sendProjectMessage(projectId, currentMessage, replyingTo?.id, 'TEXT').catch(err => console.error(err));
+                sendProjectMessage(activeProject, currentMessage, replyingTo?.id, 'TEXT').catch(err => console.error(err));
                 
                 if (currentMessage.toLowerCase().includes('@ai')) {
                     setAiStatus({ type: 'success', text: 'AI is triggered, replying...' });
-                    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-                    fetch(`${BACKEND_URL}/api/chats/ask-ai`, {
+                    apiFetch('/api/chats/ask-ai', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'include',
                         body: JSON.stringify({ prompt: currentMessage })
                     })
                     .then(async res => {
@@ -543,7 +551,7 @@ const ChatApp = () => {
                     .then(data => {
                         setAiStatus(null);
                         if (data.response) {
-                            sendProjectMessage(projectId, "🤖 AI:\n\n" + data.response, null, 'TEXT').catch(err => console.error(err));
+                            sendProjectMessage(activeProject, "🤖 AI:\n\n" + data.response, null, 'TEXT').catch(err => console.error(err));
                         }
                     })
                     .catch(e => {
@@ -555,13 +563,14 @@ const ChatApp = () => {
             }
         }
         
-        if (socket && typingTimeoutRef.current) {
+        if (socket && typingTimeoutRef.current && user) {
             clearTimeout(typingTimeoutRef.current);
-            socket.emit("stop_typing_project", { senderId: user._id, projectId });
+            socket.emit("stop_typing_project", { senderId: user._id, projectId: activeProject });
         }
     } catch (err) {
         console.error("Message send failed:", err);
     } finally {
+        clearTimeout(unlockTimer);
         setIsSending(false);
     }
   };
@@ -959,7 +968,7 @@ const ChatApp = () => {
                   };
 
                   return (
-                    <div key={index} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: '20px', width: '100%', maxWidth: '100%', overflowX: 'hidden', boxSizing: 'border-box' }}>
+                    <div key={msg._id || msg.clientMessageId || `msg-${index}`} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: '20px', width: '100%', maxWidth: '100%', overflowX: 'hidden', boxSizing: 'border-box' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '85%', minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
                           {!isMine && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2563EB' }} />}
@@ -1333,9 +1342,16 @@ const ChatApp = () => {
                     <span className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Add Media" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
                       <ImageIcon size={20} />
                     </span>
-                <textarea 
+                    <textarea 
                   ref={textareaRef}
-                  onChange={handleTyping}
+                  value={inputText}
+                  onChange={(e) => {
+                      setInputText(e.target.value);
+                      handleTyping(e);
+                  }}
+                  onInput={(e) => {
+                      setInputText(e.target.value);
+                  }}
                   placeholder="Message the collaborative space..." 
                   onKeyDown={(e) => {
                      if (e.key === 'Enter' && !e.shiftKey) {
@@ -1348,7 +1364,7 @@ const ChatApp = () => {
                     backgroundColor: 'transparent', 
                     border: 'none', 
                     color: '#F8FAFC',
-                    fontSize: '15px',
+                    fontSize: '15px', 
                     fontFamily: '"Inter", sans-serif',
                     outline: 'none',
                     padding: '8px 0',
@@ -1357,26 +1373,32 @@ const ChatApp = () => {
                     overflowY: 'auto'
                   }} 
                 />
-                <button id="chat-send-btn" type="button" onClick={handleSend} style={{ 
-                  backgroundColor: '#1E293B', 
-                  color: '#64748B', 
-                  border: 'none', 
-                  width: '40px', 
-                  height: '40px', 
-                  borderRadius: '50%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  cursor: 'default',
-                  transition: 'background-color 0.2s, box-shadow 0.2s',
-                  boxShadow: 'none'
-                }}>
+                <button 
+                  id="chat-send-btn" 
+                  type="button" 
+                  disabled={(!inputText.trim() && !pendingImage) || isSending}
+                  onClick={handleSend} 
+                  style={{ 
+                    backgroundColor: (inputText.trim() || pendingImage) ? '#2563EB' : '#1E293B', 
+                    color: (inputText.trim() || pendingImage) ? '#FFFFFF' : '#64748B', 
+                    border: 'none', 
+                    width: '40px', 
+                    height: '40px', 
+                    borderRadius: '50%',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    cursor: (inputText.trim() || pendingImage) && !isSending ? 'pointer' : 'default',
+                    transition: 'all 0.15s ease',
+                    boxShadow: (inputText.trim() || pendingImage) ? '0 2px 10px rgba(37, 99, 235, 0.4)' : 'none'
+                  }}
+                >
                   <SendIcon size={18} style={{ marginLeft: '2px' }} />
                 </button>
               </div>
               </div>
             </div>
-      </div>
+          </div>
 
       {/* TEAM MODAL OVERLAY */}
       {showTeamModal && <TeamModal onClose={() => setShowTeamModal(false)} />}

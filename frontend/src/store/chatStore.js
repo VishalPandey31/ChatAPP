@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
+import { useProjectStore } from './projectStore';
+import { apiFetch } from '../utils/api';
 import {
     importPublicKey,
     importPrivateKey,
@@ -95,9 +97,7 @@ async function getSharedSecret(recipientId, myRequiredKeyId = null, theirRequire
             if (!myPrivateKey) return null;
 
             // 2. Fetch recipient Public Key Ring
-            const res = await fetch(`${BACKEND_URL}/api/auth/keys/${recipientId}`, {
-                credentials: 'include'
-            });
+            const res = await apiFetch(`/api/auth/keys/${recipientId}`);
             if (!res.ok) return null;
             const data = await res.json(); // { publicKey, publicKeys: [{keyId, publicKey}] }
 
@@ -194,9 +194,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
 
         // Project fallback 2 (Ultimate): look up the project directly in projectStore to find the other member
         if (!recipientId && msg.projectId) {
-            // Dynamically import to prevent circular dependency if needed, but it's usually safe here
             try {
-                const { useProjectStore } = await import('./projectStore');
                 const project = useProjectStore.getState().projects.find(p => p._id === msg.projectId);
                 if (project) {
                     const others = [project.admin, ...(project.collaborators || [])].filter(m => {
@@ -209,7 +207,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                     }
                 }
             } catch (e) {
-                console.warn('[E2EE] Could not load projectStore for recipientId fallback', e);
+                console.warn('[E2EE] Could not check projectStore for recipientId fallback', e);
             }
         }
 
@@ -383,7 +381,7 @@ export const useChatStore = create(
             getChats: async () => {
                 set({ isChatsLoading: true });
                 try {
-                    const res = await fetch(`${BACKEND_URL}/api/chats`, { credentials: 'include' });
+                    const res = await apiFetch('/api/chats');
                     const data = await res.json();
                     if (!res.ok) throw new Error(data.message);
                     set({ chats: data });
@@ -397,7 +395,7 @@ export const useChatStore = create(
             getMessages: async (userId) => {
                 set({ isMessagesLoading: true });
                 try {
-                    const res = await fetch(`${BACKEND_URL}/api/chats/${userId}`, { credentials: 'include' });
+                    const res = await apiFetch(`/api/chats/${userId}`);
                     const data = await res.json();
                     if (!res.ok) throw new Error(data.message);
                     set({ messages: data });
@@ -446,7 +444,7 @@ export const useChatStore = create(
                     messages: persistedCache || []
                 });
                 try {
-                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}`, { credentials: 'include' });
+                    const res = await apiFetch(`/api/chats/project/${projectId}`);
                     const data = await res.json();
                     if (!res.ok) throw new Error(data.message);
 
@@ -496,7 +494,7 @@ export const useChatStore = create(
                 const oldestMessageId = oldestMessage._id || oldestMessage.id;
 
                 try {
-                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}?before=${oldestMessageDate}&beforeId=${oldestMessageId}`, { credentials: 'include' });
+                    const res = await apiFetch(`/api/chats/project/${projectId}?before=${oldestMessageDate}&beforeId=${oldestMessageId}`);
                     if (!res.ok) return;
                     const data = await res.json();
 
@@ -539,7 +537,7 @@ export const useChatStore = create(
             syncMissedMessages: async (projectId) => {
                 try {
                     // Fetch the absolute newest 50 messages strictly to resolve any missing middle gaps
-                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}?limit=50`, { credentials: 'include' });
+                    const res = await apiFetch(`/api/chats/project/${projectId}?limit=50`);
                     if (!res.ok) return;
                     const data = await res.json();
                     if (!data || data.length === 0) return;
@@ -586,7 +584,7 @@ export const useChatStore = create(
 
             recoverMessagesAction: async (projectId, limit = 100) => {
                 try {
-                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}/recover?limit=${limit}`, { credentials: 'include' });
+                    const res = await apiFetch(`/api/chats/project/${projectId}/recover?limit=${limit}`);
                     if (!res.ok) throw new Error("Recovery forbidden or failed.");
                     const data = await res.json();
                     if (!data || data.length === 0) return 0;
@@ -701,15 +699,14 @@ export const useChatStore = create(
 
             flushPendingMessages: (activeSocket) => {
                 const { pendingMessages } = get();
-                if (!activeSocket || !pendingMessages || pendingMessages.length === 0) return;
+                const sock = activeSocket || useAuthStore.getState().socket;
+                if (!sock || !sock.connected || !pendingMessages || pendingMessages.length === 0) return;
 
-                pendingMessages.forEach(({ payload, optimisticMsg }) => {
-                    // Force timeout tracking on reconnect buffer flush to prevent hanging again
-                    // Extended to 60 seconds to allow heavy Base64 image uploads to complete smoothly
-                    activeSocket.timeout(60000).emit("send_project_message", payload, (err, response) => {
+                // Process pending messages sequentially
+                pendingMessages.forEach(({ payload }) => {
+                    sock.timeout(15000).emit("send_project_message", payload, (err, response) => {
                         if (err) {
-                            // Timeout on flush: set to FAILED to prevent hanging/poison-loops
-                            console.error("[Lifecycle] Flush timeout. Breaking the suspension by failing the message.");
+                            console.warn("[Lifecycle] Flush timeout for message:", payload.clientMessageId);
                             set(state => {
                                 const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== payload.clientMessageId);
                                 const newMessages = state.messages.map(m => m.clientMessageId === payload.clientMessageId ? { ...m, status: 'FAILED' } : m);
@@ -725,14 +722,10 @@ export const useChatStore = create(
                                     return m;
                                 });
                                 const newCache = { ...state.messagesCache };
-                                if (payload.projectId) {
-                                    newCache[payload.projectId] = newMessages;
-                                }
+                                if (payload.projectId) newCache[payload.projectId] = newMessages;
                                 return { pendingMessages: newPending, messages: newMessages, messagesCache: newCache };
                             });
                         } else {
-                            // Backend explicitly rejected it (e.g., validation, size, auth) -- FAIL IT
-                            console.error("[Lifecycle] Message definitively rejected by server:", response);
                             set(state => {
                                 const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== payload.clientMessageId);
                                 const newMessages = state.messages.map(m => {
@@ -740,9 +733,7 @@ export const useChatStore = create(
                                     return m;
                                 });
                                 const newCache = { ...state.messagesCache };
-                                if (payload.projectId) {
-                                    newCache[payload.projectId] = newMessages;
-                                }
+                                if (payload.projectId) newCache[payload.projectId] = newMessages;
                                 return { pendingMessages: newPending, messages: newMessages, messagesCache: newCache };
                             });
                         }
@@ -857,18 +848,17 @@ export const useChatStore = create(
                             return { pendingMessages: newPending };
                         });
 
-                        // Smart emission with zombie socket timeout
+                        // Smart emission with auto-reconnect fallback
                         if (!socket.connected) {
-                            console.warn('[Lifecycle] Socket disconnected naturally, queued pending msg and forcing network connect');
+                            console.warn('[Lifecycle] Socket disconnected, queued pending msg and triggering connect');
                             socket.connect();
-                            return reject(new Error("Socket disconnected. Message queued for when connection restores."));
+                            return resolve({ status: 'queued', messageId: clientMessageId });
                         }
 
-                        // Extended upload window for massive 13MB strings on sluggish mobile uplinks
-                        socket.timeout(60000).emit("send_project_message", payload, (err, response) => {
+                        // 15-second timeout for snappy feedback
+                        socket.timeout(15000).emit("send_project_message", payload, (err, response) => {
                             if (err) {
-                                console.warn("[Lifecycle] Emit timeout. Message failed to reach server.", err);
-                                // Prevent infinite hanging: fail the message if it timeout
+                                console.warn("[Lifecycle] Emit timeout. Message marked for offline retry.", err);
                                 set(state => {
                                     const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
                                     const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'FAILED' } : m);
@@ -876,13 +866,11 @@ export const useChatStore = create(
                                     newCache[projectId] = newMsgs;
                                     return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
                                 });
-                                reject(new Error("Message send timeout"));
+                                resolve({ status: 'failed', error: 'Send timeout' });
                             } else if (response && response.status === 'ok') {
                                 // Wipe from pending list and transition SENDING -> SENT
                                 set(state => {
                                     const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
-
-                                    // RECONCILIATION: Update the ghost _id to the real _id from the server
                                     const newMsgs = state.messages.map(m => {
                                         if (m.clientMessageId === clientMessageId) {
                                             return { ...m, _id: response.messageId, status: 'SENT' };
@@ -895,7 +883,6 @@ export const useChatStore = create(
                                 });
                                 resolve(response);
                             } else {
-                                // FAIL IT, server explicitly returned error
                                 set(state => {
                                     const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
                                     const newMsgs = state.messages.map(m => {
@@ -908,7 +895,7 @@ export const useChatStore = create(
                                     newCache[projectId] = newMsgs;
                                     return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
                                 });
-                                reject(new Error(response?.error || response?.message || "Failed to send message."));
+                                resolve({ status: 'failed', error: response?.error || "Failed to send" });
                             }
                         });
                     })();
@@ -916,41 +903,8 @@ export const useChatStore = create(
             },
 
             flushOfflineQueue: async () => {
-                const { pendingMessages } = get();
-                if (!pendingMessages || pendingMessages.length === 0) return;
-
-                console.log(`[E2EE/Offline] Flushing ${pendingMessages.length} deferred messages to Socket.`);
                 const socket = useAuthStore.getState().socket;
-                if (!socket || !socket.connected) {
-                    console.warn("[E2EE/Offline] Socket unavailable, aborting offline flush.");
-                    return;
-                }
-
-                // Batch re-emit carefully. 
-                // We do NOT mutate the array here, let the callbacks handle it when the Server says OK.
-                pendingMessages.forEach(pending => {
-                    const { payload, optimisticMsg } = pending;
-                    // Because these already have encryption applied from their original attempt, 
-                    // we can securely replay the payload instantly.
-                    socket.timeout(5000).emit("send_project_message", payload, (err, response) => {
-                        if (!err && response && response.status === 'ok') {
-                            set(state => {
-                                const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== payload.clientMessageId);
-                                const newMsgs = state.messages.map(m => {
-                                    if (m.clientMessageId === payload.clientMessageId) {
-                                        return { ...m, _id: response.messageId, status: 'SENT' };
-                                    }
-                                    return m;
-                                });
-                                const newCache = { ...state.messagesCache };
-                                if (payload.projectId) newCache[payload.projectId] = newMsgs;
-                                return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
-                            });
-                        } else {
-                            console.warn("[E2EE/Offline] Buffered message failed retry:", err || response);
-                        }
-                    });
-                });
+                get().flushPendingMessages(socket);
             },
 
             editProjectMessage: async (messageId, projectId, newContent) => {
@@ -1121,9 +1075,8 @@ export const useChatStore = create(
 
             clearProjectChat: async (projectId) => {
                 try {
-                    const res = await fetch(`${BACKEND_URL}/api/chats/project/${projectId}/clear`, {
-                        method: 'DELETE',
-                        credentials: 'include'
+                    const res = await apiFetch(`/api/chats/project/${projectId}/clear`, {
+                        method: 'DELETE'
                     });
                     if (!res.ok) {
                         const data = await res.json();
@@ -1151,11 +1104,28 @@ export const useChatStore = create(
         }),
         {
             name: 'chatapp-offline-cache',
-            partialize: (state) => ({
-                messagesCache: state.messagesCache,
-                chats: state.chats,
-                pendingMessages: state.pendingMessages
-            }),
+            partialize: (state) => {
+                // High-performance cache pruning: Only save the last 30 text messages per project
+                // and strip massive Base64 images to prevent synchronous localStorage freezes!
+                const sanitizedCache = {};
+                if (state.messagesCache) {
+                    for (const [pId, msgs] of Object.entries(state.messagesCache)) {
+                        if (Array.isArray(msgs)) {
+                            sanitizedCache[pId] = msgs.slice(-30).map(m => {
+                                if (m.messageType === 'IMAGE' && typeof m.content === 'string' && m.content.startsWith('data:')) {
+                                    return { ...m, content: '[Image attachment]' };
+                                }
+                                return m;
+                            });
+                        }
+                    }
+                }
+                return {
+                    messagesCache: sanitizedCache,
+                    chats: state.chats || [],
+                    pendingMessages: (state.pendingMessages || []).slice(-10)
+                };
+            },
         }
     )
 );

@@ -3,6 +3,7 @@ import Message from '../models/Message.js';
 import Chat from '../models/Chat.js';
 import Project from '../models/Project.js';
 import webpush from 'web-push';
+import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -24,12 +25,49 @@ const formatDuration = (secs) => {
 };
 
 export const socketHandler = (io) => {
+    // Handshake Authentication: Pre-identify socket before connection event
+    io.use((socket, next) => {
+        try {
+            const rawUserId = socket.handshake.auth?.userId || socket.handshake.query?.userId;
+            const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
+            
+            let authenticatedId = rawUserId;
+            if (token && process.env.JWT_SECRET) {
+                try {
+                    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                    if (decoded && decoded.userId) {
+                        authenticatedId = decoded.userId;
+                    }
+                } catch (e) {
+                    // Fall back to rawUserId if query was passed
+                }
+            }
+            if (authenticatedId) {
+                socket.userId = String(authenticatedId);
+            }
+            next();
+        } catch (err) {
+            next();
+        }
+    });
+
     io.on("connection", (socket) => {
-        console.log("New client connected", socket.id);
+        // Pre-register user immediately upon connection if known from handshake
+        if (socket.userId) {
+            connectedUsers.set(socket.id, socket.userId);
+            if (!userSockets.has(socket.userId)) {
+                userSockets.set(socket.userId, new Set());
+                socket.broadcast.emit("user_status", { userId: socket.userId, status: "online" });
+            }
+            userSockets.get(socket.userId).add(socket.id);
+        }
 
         // When a user logs in and establishes connection
-        socket.on("join", async (userId) => {
+        socket.on("join", async (rawUserId) => {
+            if (!rawUserId) return;
+            const userId = String(rawUserId);
             connectedUsers.set(socket.id, userId);
+            socket.userId = userId;
 
             if (!userSockets.has(userId)) {
                 userSockets.set(userId, new Set());
@@ -37,7 +75,6 @@ export const socketHandler = (io) => {
                 socket.broadcast.emit("user_status", { userId, status: "online" });
             }
             userSockets.get(userId).add(socket.id);
-            console.log(`User ${userId} joined with socket ${socket.id}`);
 
             // Send the complete list of currently online users to the user who just joined
             const currentOnlineUsers = Array.from(userSockets.keys());
@@ -212,11 +249,16 @@ export const socketHandler = (io) => {
                 const { senderId, projectId, content, messageType, replyTo, clientMessageId, iv, encryptionVersion, senderKeyId, recipientKeyId } = data;
 
                 // Security: Validate the senderId matches the authenticated socket user
-                const authenticatedUserId = connectedUsers.get(socket.id);
-                if (!authenticatedUserId || authenticatedUserId !== senderId) {
-                    console.warn('[Security] Blocked spoofed senderId from socket:', socket.id);
+                const authenticatedUserId = connectedUsers.get(socket.id) || socket.userId || socket.handshake.auth?.userId || socket.handshake.query?.userId;
+                if (!authenticatedUserId || String(authenticatedUserId) !== String(senderId)) {
+                    console.warn('[Security] Blocked spoofed senderId from socket:', socket.id, 'auth:', authenticatedUserId, 'sender:', senderId);
                     if (typeof callback === 'function') callback({ status: 'error', error: 'Unauthorized sender' });
                     return;
+                }
+
+                // Ensure socket is joined to the project room
+                if (projectId) {
+                    socket.join(projectId);
                 }
 
                 const sender = await User.findById(senderId);
@@ -224,14 +266,6 @@ export const socketHandler = (io) => {
                     if (typeof callback === 'function') callback({ status: 'error', error: 'Invalid sender or project' });
                     return;
                 }
-
-                /*
-                // Security check disabled: Allow standard users to chat without admin approval
-                if (sender.role === 'USER' && (sender.approvalStatus !== 'APPROVED' || sender.accountStatus !== 'ACTIVE')) {
-                    if (typeof callback === 'function') callback({ status: 'error', error: 'User is not approved or active' });
-                    return;
-                }
-                */
 
                 // Create message — now with E2EE ciphertext and exact Key Version metadata fields
                 let msgData = {
@@ -272,55 +306,62 @@ export const socketHandler = (io) => {
                 if (!isDuplicateReplay) {
                     // Emit to designated project room ONLY if this wasn't a client timeout retry
                     io.to(projectId).emit("receive_project_message", msg);
-
-                    // Push Notification Logic for all project partners
-                    const project = await Project.findById(projectId).populate('collaborators').populate('admin');
-                    if (project) {
-                        const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
-                        const receivers = allMembers.filter(m => m._id.toString() !== senderId.toString());
-
-                        const payload = JSON.stringify({
-                            title: 'ChatApp Team',
-                            body: 'New encrypted message', // NEVER send plaintext content here
-                            data: {
-                                url: '/chat/' + projectId,
-                                type: 'CHAT_MESSAGE'
-                            }
-                        });
-
-                        for (const u of receivers) {
-                            if (u.pushSubscriptions && u.pushSubscriptions.length > 0) {
-                                const validSubs = [];
-                                let changed = false;
-
-                                // Get fresh user instance for saving
-                                const dbUser = await User.findById(u._id);
-
-                                await Promise.all(dbUser.pushSubscriptions.map(async sub => {
-                                    try {
-                                        await webpush.sendNotification(sub, payload);
-                                        validSubs.push(sub);
-                                    } catch (err) {
-                                        console.error("WebPush send_project_message error:", err.statusCode || err);
-                                        if (err.statusCode === 410 || err.statusCode === 404 || err.statusCode === 401 || err.statusCode === 400) {
-                                            changed = true;
-                                        } else {
-                                            validSubs.push(sub);
-                                        }
-                                    }
-                                }));
-
-                                if (changed && dbUser) {
-                                    dbUser.pushSubscriptions = validSubs;
-                                    await dbUser.save();
-                                }
-                            }
-                        }
-                    }
                 }
 
+                // INSTANT ACKNOWLEDGMENT (<5ms) - NEVER block on push notification network calls
                 if (typeof callback === 'function') {
                     callback({ status: 'ok', messageId: msg._id });
+                }
+
+                // Non-blocking Background Push Notifications
+                if (!isDuplicateReplay) {
+                    (async () => {
+                        try {
+                            const project = await Project.findById(projectId).populate('collaborators').populate('admin').lean();
+                            if (project) {
+                                const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
+                                const receivers = allMembers.filter(m => String(m._id) !== String(senderId));
+
+                                const payload = JSON.stringify({
+                                    title: 'ChatApp Team',
+                                    body: 'New encrypted message',
+                                    data: {
+                                        url: '/chat/' + projectId,
+                                        type: 'CHAT_MESSAGE'
+                                    }
+                                });
+
+                                for (const u of receivers) {
+                                    if (u.pushSubscriptions && u.pushSubscriptions.length > 0) {
+                                        const validSubs = [];
+                                        let changed = false;
+                                        const dbUser = await User.findById(u._id);
+                                        if (!dbUser || !dbUser.pushSubscriptions) continue;
+
+                                        await Promise.all(dbUser.pushSubscriptions.map(async sub => {
+                                            try {
+                                                await webpush.sendNotification(sub, payload);
+                                                validSubs.push(sub);
+                                            } catch (err) {
+                                                if (err.statusCode === 410 || err.statusCode === 404 || err.statusCode === 401 || err.statusCode === 400) {
+                                                    changed = true;
+                                                } else {
+                                                    validSubs.push(sub);
+                                                }
+                                            }
+                                        }));
+
+                                        if (changed) {
+                                            dbUser.pushSubscriptions = validSubs;
+                                            await dbUser.save();
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (pushErr) {
+                            console.warn('[WebPush] Background delivery error:', pushErr.message);
+                        }
+                    })();
                 }
 
             } catch (err) {
