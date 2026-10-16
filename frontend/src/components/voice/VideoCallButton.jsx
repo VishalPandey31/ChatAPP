@@ -42,7 +42,7 @@ const VideoCallButton = ({ receiverId, receiverName }) => {
                 onClick={handleButtonClick}
                 title="Video Call"
                 style={{ 
-                    padding: '8px', 
+                    padding: '6px 8px', 
                     borderRadius: '8px', 
                     cursor: 'pointer', 
                     display: 'flex', 
@@ -50,7 +50,6 @@ const VideoCallButton = ({ receiverId, receiverName }) => {
                     justifyContent: 'center', 
                     transition: 'all 0.2s',
                     color: '#10B981',
-                    marginRight: '6px',
                     flexShrink: 0
                 }}
                 onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.15)'} 

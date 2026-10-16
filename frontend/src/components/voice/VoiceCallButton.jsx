@@ -42,7 +42,7 @@ const VoiceCallButton = ({ receiverId, receiverName }) => {
                 onClick={handleButtonClick}
                 title="Voice Call"
                 style={{ 
-                    padding: '8px', 
+                    padding: '6px 8px', 
                     borderRadius: '8px', 
                     cursor: 'pointer', 
                     display: 'flex', 
@@ -50,7 +50,6 @@ const VoiceCallButton = ({ receiverId, receiverName }) => {
                     justifyContent: 'center', 
                     transition: 'all 0.2s',
                     color: '#25d366',
-                    marginRight: '8px',
                     flexShrink: 0
                 }}
                 onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(37, 211, 102, 0.1)'} 

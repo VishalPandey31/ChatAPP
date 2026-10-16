@@ -69,7 +69,7 @@ const renderMessageContent = (content) => {
 };
 
 
-const formatLastSeen = (dateInput) => {
+const formatLastSeen = (dateInput, isShort = false) => {
     if (!dateInput) return 'Offline';
     const date = new Date(dateInput);
     if (isNaN(date.getTime())) return 'Offline';
@@ -83,14 +83,14 @@ const formatLastSeen = (dateInput) => {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const diffDays = Math.round((today - checkDate) / (1000 * 60 * 60 * 24)); 
     
-    if (diffMin < 1) return `Last seen just now`;
-    if (diffMin < 60) return `Last seen ${diffMin} min ago`;
-    if (diffDays === 0) return `last seen today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    if (diffDays === 1) return `last seen yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    if (diffMin < 1) return isShort ? `just now` : `Last seen just now`;
+    if (diffMin < 60) return isShort ? `${diffMin}m ago` : `Last seen ${diffMin} min ago`;
+    if (diffDays === 0) return isShort ? `today ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : `last seen today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    if (diffDays === 1) return isShort ? `yesterday ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : `last seen yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     
     const dateOptions = { day: 'numeric', month: 'short' };
     const dateStr = date.toLocaleDateString('en-GB', dateOptions);
-    return `last seen on ${dateStr} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    return isShort ? `${dateStr}` : `last seen on ${dateStr} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 };
 
 const ChatApp = () => {
@@ -858,24 +858,88 @@ const ChatApp = () => {
       )}
         
         {/* Chat Header */}
-        <div className="chat-header" style={{ flexShrink: 0, position: 'relative', zIndex: 50, padding: '16px 24px', borderBottom: '1px solid #243044', backgroundColor: '#0B1120', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ backgroundColor: 'rgba(37, 99, 235, 0.15)', color: '#2563eb', padding: '8px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <MessageSquare size={20} />
+        <div className="chat-header" style={{ 
+          flexShrink: 0, 
+          position: 'relative', 
+          zIndex: 50, 
+          padding: isMobile ? '10px 12px' : '14px 20px', 
+          borderBottom: '1px solid #243044', 
+          backgroundColor: '#0B1120', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          gap: '8px',
+          minWidth: 0,
+          boxSizing: 'border-box'
+        }}>
+          {/* Left Title & Status Section (Strictly Single Responsive Line) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+            <div 
+              onClick={() => navigate('/projects')}
+              title="Back to Chats"
+              style={{ 
+                backgroundColor: 'rgba(37, 99, 235, 0.15)', 
+                color: '#3b82f6', 
+                padding: isMobile ? '6px' : '8px', 
+                borderRadius: '10px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                cursor: 'pointer',
+                flexShrink: 0,
+                transition: 'background-color 0.2s'
+              }}
+              onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.25)'}
+              onMouseLeave={e => e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.15)'}
+            >
+              <MessageSquare size={isMobile ? 18 : 20} />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontWeight: '600', fontSize: '16px', color: '#F8FAFC', letterSpacing: '0.3px', fontFamily: '"Inter", sans-serif' }}>
+
+            {/* Title + Status in ONE SINGLE LINE */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '6px', 
+              minWidth: 0, 
+              flex: 1, 
+              overflow: 'hidden',
+              whiteSpace: 'nowrap'
+            }}>
+              <span style={{ 
+                fontWeight: '600', 
+                fontSize: isMobile ? '13.5px' : '15px', 
+                color: '#F8FAFC', 
+                letterSpacing: '0.2px', 
+                fontFamily: '"Inter", sans-serif',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                flexShrink: 1,
+                minWidth: 0
+              }}>
                  {currentProject ? currentProject.name : 'ChatApp'}
               </span>
-              <span style={{ fontSize: '12px', color: '#94A3B8', fontFamily: '"Inter", sans-serif', minHeight: '15px' }}>
+
+              <span style={{ color: '#475569', fontSize: '11px', flexShrink: 0, userSelect: 'none' }}>•</span>
+
+              <span style={{ 
+                fontSize: isMobile ? '11px' : '12px', 
+                color: '#94A3B8', 
+                fontFamily: '"Inter", sans-serif', 
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
                 {(() => {
-                    if (!callTarget) return 'Offline';
+                    if (!callTarget) return <span style={{ color: '#64748B' }}>Offline</span>;
                     
                     const targetId = callTarget._id ? callTarget._id.toString() : callTarget.toString();
                     if (onlineUsers.includes(targetId)) {
                         return (
-                            <span style={{ color: '#25D366', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#25D366' }} />
+                            <span style={{ color: '#25D366', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: '500' }}>
+                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#25D366', display: 'inline-block' }} />
                                 Online
                             </span>
                         );
@@ -885,24 +949,26 @@ const ChatApp = () => {
                     const reliableLastSeen = lastSeenMap && lastSeenMap[targetId] ? lastSeenMap[targetId] : callTarget.lastSeen;
                     
                     if (reliableLastSeen) {
-                        return <span>{formatLastSeen(reliableLastSeen)}</span>;
+                        return <span style={{ color: '#94A3B8' }}>{formatLastSeen(reliableLastSeen, isMobile)}</span>;
                     }
 
-                    return <span>Offline</span>;
+                    return <span style={{ color: '#64748B' }}>Offline</span>;
                 })()}
               </span>
             </div>
           </div>
+
           {isMobile ? (
-            <div className="mobile-header-menu" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div className="mobile-header-menu" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
               <EyeGuardMonitor 
+                compact={true}
                 onOpenSettings={() => setShowBioSettings(true)} 
                 onOpenEnroll={() => setShowBioEnroll(true)} 
               />
               <VideoCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <VoiceCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
-              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', color: '#94A3B8' }} aria-label="Menu" aria-expanded={showMobileMenu} onClick={() => setShowMobileMenu(!showMobileMenu)}>
-                <MoreVertical size={20} />
+              <span className="icon-btn" style={{ padding: '6px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', flexShrink: 0 }} aria-label="Menu" aria-expanded={showMobileMenu} onClick={() => setShowMobileMenu(!showMobileMenu)}>
+                <MoreVertical size={18} />
               </span>
               {showMobileMenu && (
                 <>

@@ -5,7 +5,7 @@ import { useVoiceCallStore } from '../../store/voiceCallStore';
 import { loadFaceModels, detectFaceInVideo, compareFaceDescriptors } from '../../utils/faceRecognitionService';
 import './Biometrics.css';
 
-export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
+export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll, compact = false }) {
     const { 
         user, 
         faceProfile, 
@@ -182,37 +182,39 @@ export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
             {/* Header Badge */}
             {securityMode === 'none' ? (
                 <div 
-                    className="eyeguard-badge unregistered"
+                    className={`eyeguard-badge unregistered ${compact ? 'compact' : ''}`}
                     onClick={onOpenSettings}
                     title="Normal Mode (No face scanning). Click to switch security modes."
                     style={{ background: 'rgba(59, 130, 246, 0.12)', borderColor: 'rgba(59, 130, 246, 0.35)', color: '#60a5fa' }}
                 >
-                    <Sparkles size={13} />
-                    <span>Mode: Normal (No Face)</span>
+                    <Sparkles size={compact ? 15 : 13} />
+                    {!compact && <span className="eyeguard-label">Mode: Normal</span>}
                 </div>
             ) : isEnrolled ? (
                 <div 
-                    className={`eyeguard-badge ${monitorStatus === 'verified' ? '' : monitorStatus === 'warning' ? 'danger' : 'warning'}`}
+                    className={`eyeguard-badge ${compact ? 'compact' : ''} ${monitorStatus === 'verified' ? '' : monitorStatus === 'warning' ? 'danger' : 'warning'}`}
                     onClick={onOpenSettings}
-                    title="Click to view or switch Security Mode"
+                    title={securityMode === 'face_youtube' ? "YouTube Stealth Active. Click to configure." : "Face Guard Active. Click to configure."}
                     style={securityMode === 'face_youtube' ? { borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171', background: 'rgba(239, 68, 68, 0.1)' } : {}}
                 >
                     <span className="eyeguard-dot" style={securityMode === 'face_youtube' ? { background: '#ef4444', boxShadow: '0 0 8px #ef4444' } : {}} />
-                    <Eye size={13} />
-                    <span>
-                        {securityMode === 'face_youtube'
-                            ? (monitorStatus === 'verified' ? `YouTube Stealth (${dominantExpr || 'active'})` : 'YouTube Stealth')
-                            : (monitorStatus === 'verified' ? `Face+Login (${dominantExpr || 'active'})` : 'Face+Login: Scanning')}
-                    </span>
+                    <Eye size={compact ? 15 : 13} />
+                    {!compact && (
+                        <span className="eyeguard-label">
+                            {securityMode === 'face_youtube'
+                                ? (monitorStatus === 'verified' ? `YouTube Stealth` : 'Stealth')
+                                : (monitorStatus === 'verified' ? `Face Guard` : 'Scanning')}
+                        </span>
+                    )}
                 </div>
             ) : (
                 <div 
-                    className="eyeguard-badge unregistered"
+                    className={`eyeguard-badge unregistered ${compact ? 'compact' : ''}`}
                     onClick={onOpenEnroll}
                     title="Click to set up Eye & Face Protection for Secret Chats"
                 >
-                    <Sparkles size={13} />
-                    <span>Setup Face ID</span>
+                    <Sparkles size={compact ? 15 : 13} />
+                    {!compact && <span className="eyeguard-label">Setup Face ID</span>}
                 </div>
             )}
         </>

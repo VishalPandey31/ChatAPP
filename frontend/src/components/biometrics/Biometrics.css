@@ -17,6 +17,30 @@
     cursor: pointer;
     transition: all 0.25s ease;
     user-select: none;
+    flex-shrink: 0;
+}
+
+.eyeguard-badge.compact {
+    padding: 6px 8px !important;
+    border-radius: 8px !important;
+    gap: 0 !important;
+    min-width: 30px !important;
+    height: 30px !important;
+    justify-content: center !important;
+}
+
+@media (max-width: 768px) {
+    .eyeguard-badge {
+        padding: 6px 8px !important;
+        border-radius: 8px !important;
+        gap: 0 !important;
+        min-width: 30px !important;
+        height: 30px !important;
+        justify-content: center !important;
+    }
+    .eyeguard-badge .eyeguard-label {
+        display: none !important;
+    }
 }
 
 .eyeguard-badge:hover {
