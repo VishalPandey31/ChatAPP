@@ -52,7 +52,10 @@ export const getProjects = async (req, res) => {
         if (activeUserIds.length > 0) {
             await Project.updateMany(
                 {},
-                { $addToSet: { collaborators: { $each: activeUserIds } } }
+                { 
+                    $addToSet: { collaborators: { $each: activeUserIds } },
+                    $pull: { collaborators: { $nin: activeUserIds } }
+                }
             );
         }
 
