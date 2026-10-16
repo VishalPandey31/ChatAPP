@@ -5,6 +5,8 @@ import AdminLogin from './pages/AdminLogin';
 import AdminRegister from './pages/AdminRegister';
 import ProjectDashboard from './pages/ProjectDashboard';
 import ChatApp from './pages/ChatApp';
+import IncomingCallModal from './components/voice/IncomingCallModal';
+import ActiveCallOverlay from './components/voice/ActiveCallOverlay';
 import { useAuthStore } from './store/authStore';
 
 const ProtectedRoute = ({ children, requireAdmin = false }) => {
@@ -44,6 +46,10 @@ const App = () => {
 
   return (
     <BrowserRouter>
+      {/* Global WhatsApp Calling Overlays */}
+      <IncomingCallModal />
+      <ActiveCallOverlay />
+
       <Routes>
         <Route path="/" element={<Navigate to="/login" />} />
         <Route path="/login" element={<Login />} />

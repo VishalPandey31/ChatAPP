@@ -3,7 +3,7 @@ import { useVoiceCallStore } from '../../store/voiceCallStore';
 import { Video } from 'lucide-react';
 import CallConfirmModal from './CallConfirmModal';
 
-const VideoCallButton = ({ receiverId, receiverName }) => {
+const VideoCallButton = ({ receiverId, receiverName, receiverAvatar, receiverEmail }) => {
     const { callState, startCall } = useVoiceCallStore();
     const [confirmStep, setConfirmStep] = useState(0); // 0: closed, 1: first popup, 2: second popup
 
@@ -28,7 +28,7 @@ const VideoCallButton = ({ receiverId, receiverName }) => {
     const handleFinalConfirm = () => {
         // Confirmed 2 times -> start the video call!
         setConfirmStep(0);
-        startCall(receiverId, receiverName, 'video');
+        startCall(receiverId, receiverName, 'video', { receiverAvatar, receiverEmail });
     };
 
     const handleCancel = () => {

@@ -58,6 +58,11 @@ export const useVoiceCallStore = create((set, get) => ({
     // Call participant data
     activeCall: null,
 
+    // Call UI State
+    isMinimized: false,
+    toggleMinimize: () => set(s => ({ isMinimized: !s.isMinimized })),
+    setMinimized: (val) => set({ isMinimized: val }),
+
     // Internal WebRTC
     peerConnection: null,
     localStream: null,
@@ -89,7 +94,7 @@ export const useVoiceCallStore = create((set, get) => ({
         socket.off('voice-call:record');
 
         socket.on('incoming-call', (data) => {
-            const { callerId, callerName, callId, callType } = data;
+            const { callerId, callerName, callerAvatar, callerEmail, callId, callType } = data;
             const { callState } = get();
 
             if (callState !== 'IDLE') {
@@ -104,7 +109,17 @@ export const useVoiceCallStore = create((set, get) => ({
 
             set({
                 callState: 'RINGING',
-                activeCall: { callerId, callerName, receiverId: useAuthStore.getState().user._id, callId, isIncoming: true, callType: callType || 'voice' }
+                activeCall: { 
+                    callerId, 
+                    callerName, 
+                    callerAvatar: callerAvatar || '', 
+                    callerEmail: callerEmail || '', 
+                    receiverId: useAuthStore.getState().user._id, 
+                    callId, 
+                    isIncoming: true, 
+                    callType: callType || 'voice' 
+                },
+                isMinimized: false
             });
         });
 
@@ -225,7 +240,7 @@ export const useVoiceCallStore = create((set, get) => ({
     },
 
     // A Starts Call (Voice or Video)
-    startCall: (receiverId, receiverName, callType = 'voice') => {
+    startCall: (receiverId, receiverName, callType = 'voice', extraData = {}) => {
         const socket = useAuthStore.getState().socket;
         const currentUser = useAuthStore.getState().user;
         if (!socket || !currentUser) return;
@@ -238,13 +253,18 @@ export const useVoiceCallStore = create((set, get) => ({
             activeCall: {
                 callerId: currentUser._id,
                 callerName: currentUser.name,
+                callerAvatar: currentUser.profilePicture || '',
+                callerEmail: currentUser.email || '',
                 receiverId,
                 receiverName,
+                receiverAvatar: extraData.receiverAvatar || '',
+                receiverEmail: extraData.receiverEmail || '',
                 callId,
                 callType: callType || 'voice',
                 isIncoming: false
             },
-            connectedAt: null
+            connectedAt: null,
+            isMinimized: false
         });
 
         // If starting a video call, pre-warm local camera stream so caller sees self preview
@@ -257,6 +277,8 @@ export const useVoiceCallStore = create((set, get) => ({
             receiverId,
             callId,
             callerName: currentUser.name,
+            callerAvatar: currentUser.profilePicture || '',
+            callerEmail: currentUser.email || '',
             callType: callType || 'voice'
         });
 
@@ -312,6 +334,54 @@ export const useVoiceCallStore = create((set, get) => ({
             get()._saveCallRecord({ status: reason === 'busy' ? 'missed' : 'declined' });
         }
         get()._cleanup();
+    },
+
+    rejectCallWithMessage: async (messageText) => {
+        const { activeCall, rejectCall } = get();
+        if (!activeCall) return;
+        const projectId = useChatStore.getState().currentProjectId;
+        if (projectId && messageText) {
+            useChatStore.getState().sendProjectMessage(projectId, `📞 [Call declined with message]: ${messageText}`, null, 'TEXT').catch(() => {});
+        }
+        rejectCall('declined_with_message');
+    },
+
+    upgradeToVideo: async () => {
+        const { activeCall, localStream, peerConnection } = get();
+        if (!activeCall) return;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+            });
+            const newVideoTrack = stream.getVideoTracks()[0];
+            if (newVideoTrack) {
+                if (localStream) {
+                    const oldTracks = localStream.getVideoTracks();
+                    oldTracks.forEach(t => { localStream.removeTrack(t); t.stop(); });
+                    localStream.addTrack(newVideoTrack);
+                } else {
+                    set({ localStream: stream });
+                }
+                if (peerConnection) {
+                    const existingSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (existingSender) {
+                        existingSender.replaceTrack(newVideoTrack);
+                    } else {
+                        peerConnection.addTrack(newVideoTrack, localStream || stream);
+                    }
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    const targetId = activeCall.isIncoming ? activeCall.callerId : activeCall.receiverId;
+                    const socket = useAuthStore.getState().socket;
+                    socket?.emit('webrtc-offer', { targetId, offer: peerConnection.localDescription, callId: activeCall.callId });
+                }
+            }
+            set({ activeCall: { ...activeCall, callType: 'video' }, isVideoMuted: false });
+        } catch (e) {
+            console.warn("Could not upgrade to video:", e);
+            alert("Camera access denied or unavailable.");
+        }
     },
 
     endCall: () => {
@@ -586,7 +656,8 @@ export const useVoiceCallStore = create((set, get) => ({
             callState: 'IDLE', activeCall: null, peerConnection: null,
             localStream: null, remoteStream: null, isMuted: false,
             isVideoMuted: false, isFrontCamera: true,
-            iceCandidateQueue: [], connectedAt: null, _timeoutTimer: null
+            iceCandidateQueue: [], connectedAt: null, _timeoutTimer: null,
+            isMinimized: false
         });
     },
 

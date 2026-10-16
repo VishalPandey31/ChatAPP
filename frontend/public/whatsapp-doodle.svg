@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400" fill="none">
+  <!-- Subtle WhatsApp Doodle Pattern -->
+  <g stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.045">
+    <!-- Chat bubble -->
+    <path d="M40 30 C30 30 22 38 22 48 C22 58 30 66 40 66 L40 74 L48 66 L60 66 C70 66 78 58 78 48 C78 38 70 30 60 30 Z" />
+    <circle cx="42" cy="48" r="2" fill="#ffffff" />
+    <circle cx="50" cy="48" r="2" fill="#ffffff" />
+    <circle cx="58" cy="48" r="2" fill="#ffffff" />
+
+    <!-- Coffee cup -->
+    <path d="M120 40 L150 40 L146 65 C145 70 140 74 135 74 L135 74 C130 74 125 70 124 65 Z" />
+    <path d="M150 45 C156 45 160 48 160 52 C160 56 156 60 148 60" />
+    <path d="M120 78 L150 78" />
+
+    <!-- Heart -->
+    <path d="M220 45 C215 35 200 38 200 50 C200 62 220 75 220 75 C220 75 240 62 240 50 C240 38 225 35 220 45 Z" />
+
+    <!-- Musical note -->
+    <circle cx="300" cy="65" r="5" />
+    <path d="M305 65 L305 40 L325 35 L325 60" />
+    <circle cx="320" cy="60" r="5" />
+
+    <!-- Star -->
+    <path d="M370 45 L373 52 L380 53 L375 58 L376 65 L370 61 L364 65 L365 58 L360 53 L367 52 Z" />
+
+    <!-- Camera -->
+    <rect x="30" y="120" width="36" height="26" rx="4" />
+    <path d="M42 120 L45 114 L53 114 L56 120" />
+    <circle cx="48" cy="133" r="6" />
+
+    <!-- Clock -->
+    <circle cx="130" cy="140" r="16" />
+    <path d="M130 130 L130 140 L138 140" />
+
+    <!-- Paper airplane -->
+    <path d="M210 130 L245 145 L210 160 L218 145 Z" />
+    <path d="M218 145 L245 145" />
+
+    <!-- Headphones -->
+    <path d="M300 145 C300 130 310 120 325 120 C340 120 350 130 350 145" />
+    <rect x="296" y="145" width="8" height="14" rx="3" />
+    <rect x="346" y="145" width="8" height="14" rx="3" />
+
+    <!-- Phone handset -->
+    <path d="M35 225 C35 220 42 215 48 220 L55 227 C58 230 58 235 55 238 L51 242 C56 252 64 260 74 265 L78 261 C81 258 86 258 89 261 L96 268 C101 274 96 281 91 281 C75 281 45 255 35 225 Z" />
+
+    <!-- Flower -->
+    <circle cx="140" cy="230" r="4" />
+    <circle cx="140" cy="222" r="4" />
+    <circle cx="140" cy="238" r="4" />
+    <circle cx="132" cy="230" r="4" />
+    <circle cx="148" cy="230" r="4" />
+
+    <!-- Game controller -->
+    <rect x="210" y="220" width="40" height="24" rx="8" />
+    <path d="M218 232 L226 232 M222 228 L222 236" />
+    <circle cx="238" cy="230" r="2" fill="#ffffff" />
+    <circle cx="244" cy="234" r="2" fill="#ffffff" />
+
+    <!-- Sun / lightbulb -->
+    <circle cx="320" cy="230" r="8" />
+    <path d="M320 216 L320 220 M320 240 L320 244 M306 230 L310 230 M330 230 L334 230" />
+
+    <!-- Glasses -->
+    <circle cx="45" cy="330" r="10" />
+    <circle cx="75" cy="330" r="10" />
+    <path d="M55 330 L65 330 M35 328 L25 324 M85 328 L95 324" />
+
+    <!-- Smiley face -->
+    <circle cx="140" cy="330" r="15" />
+    <circle cx="135" cy="325" r="1.5" fill="#ffffff" />
+    <circle cx="145" cy="325" r="1.5" fill="#ffffff" />
+    <path d="M133 334 C136 339 144 339 147 334" />
+
+    <!-- Lock -->
+    <rect x="220" y="325" width="22" height="18" rx="3" />
+    <path d="M225 325 L225 318 C225 314 228 311 231 311 C234 311 237 314 237 318 L237 325" />
+    <circle cx="231" cy="334" r="2" fill="#ffffff" />
+
+    <!-- Sparkles -->
+    <path d="M315 325 L320 315 L325 325 L335 330 L325 335 L320 345 L315 335 L305 330 Z" />
+
+    <!-- Microphone -->
+    <rect x="365" y="220" width="8" height="16" rx="4" />
+    <path d="M361 228 C361 234 365 238 369 238 C373 238 377 234 377 228 M369 238 L369 244 M364 244 L374 244" />
+  </g>
+</svg>

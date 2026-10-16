@@ -3,7 +3,7 @@ import { useVoiceCallStore } from '../../store/voiceCallStore';
 import { Phone } from 'lucide-react';
 import CallConfirmModal from './CallConfirmModal';
 
-const VoiceCallButton = ({ receiverId, receiverName }) => {
+const VoiceCallButton = ({ receiverId, receiverName, receiverAvatar, receiverEmail }) => {
     const { callState, startCall } = useVoiceCallStore();
     const [confirmStep, setConfirmStep] = useState(0); // 0: closed, 1: first popup, 2: second popup
 
@@ -28,7 +28,7 @@ const VoiceCallButton = ({ receiverId, receiverName }) => {
     const handleFinalConfirm = () => {
         // User confirmed 2nd popup -> initiate the call!
         setConfirmStep(0);
-        startCall(receiverId, receiverName);
+        startCall(receiverId, receiverName, 'voice', { receiverAvatar, receiverEmail });
     };
 
     const handleCancel = () => {

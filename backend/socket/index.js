@@ -503,11 +503,18 @@ export const socketHandler = (io) => {
 
         // Voice & Video Call Signaling
         socket.on("call-user", async (data) => {
-            const { callerId, receiverId, callId, callerName, callType } = data;
+            const { callerId, receiverId, callId, callerName, callerAvatar, callerEmail, callType } = data;
             const receiverSockets = userSockets.get(receiverId);
             if (receiverSockets && receiverSockets.size > 0) {
                 receiverSockets.forEach(socketId => {
-                    io.to(socketId).emit("incoming-call", { callerId, callerName, callId, callType: callType || 'voice' });
+                    io.to(socketId).emit("incoming-call", { 
+                        callerId, 
+                        callerName, 
+                        callerAvatar, 
+                        callerEmail, 
+                        callId, 
+                        callType: callType || 'voice' 
+                    });
                 });
             } else {
                 socket.emit("call-failed", { callId, reason: "User offline" });

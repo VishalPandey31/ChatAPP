@@ -9,8 +9,6 @@ import { Loader2, Plus, Users, Send as SendIcon, Settings, Check, LogOut, CheckC
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
 import { useVoiceCallStore } from '../store/voiceCallStore';
-import IncomingCallModal from '../components/voice/IncomingCallModal';
-import ActiveCallOverlay from '../components/voice/ActiveCallOverlay';
 import VoiceCallButton from '../components/voice/VoiceCallButton';
 import VideoCallButton from '../components/voice/VideoCallButton';
 import ImageZoomModal, { downloadMediaFile } from '../components/ImageZoomModal';
@@ -1009,8 +1007,18 @@ const ChatApp = () => {
                 onOpenSettings={() => setShowBioSettings(true)} 
                 onOpenEnroll={() => setShowBioEnroll(true)} 
               />
-              <VideoCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
-              <VoiceCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
+              <VideoCallButton 
+                receiverId={callTarget?._id || callTarget || 'unknown'} 
+                receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} 
+                receiverAvatar={callTarget?.profilePicture || ''}
+                receiverEmail={callTarget?.email || ''}
+              />
+              <VoiceCallButton 
+                receiverId={callTarget?._id || callTarget || 'unknown'} 
+                receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} 
+                receiverAvatar={callTarget?.profilePicture || ''}
+                receiverEmail={callTarget?.email || ''}
+              />
               <span className="icon-btn" style={{ padding: '6px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', flexShrink: 0 }} aria-label="Menu" aria-expanded={showMobileMenu} onClick={() => setShowMobileMenu(!showMobileMenu)}>
                 <MoreVertical size={18} />
               </span>
@@ -1215,8 +1223,18 @@ const ChatApp = () => {
                 onOpenSettings={() => setShowBioSettings(true)} 
                 onOpenEnroll={() => setShowBioEnroll(true)} 
               />
-              <VideoCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
-              <VoiceCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
+              <VideoCallButton 
+                receiverId={callTarget?._id || callTarget || 'unknown'} 
+                receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} 
+                receiverAvatar={callTarget?.profilePicture || ''}
+                receiverEmail={callTarget?.email || ''}
+              />
+              <VoiceCallButton 
+                receiverId={callTarget?._id || callTarget || 'unknown'} 
+                receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} 
+                receiverAvatar={callTarget?.profilePicture || ''}
+                receiverEmail={callTarget?.email || ''}
+              />
               <span onClick={() => { setShowSearchInput(!showSearchInput); if (!showSearchInput) setSearchQuery(''); }} className="icon-btn" title="Search" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: showSearchInput ? '#2563EB' : '#94A3B8', backgroundColor: showSearchInput ? '#1E293B' : 'transparent' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1E293B'} onMouseLeave={e => e.currentTarget.style.backgroundColor = showSearchInput ? '#1E293B' : 'transparent'}>
                 <Search size={18} />
               </span>
@@ -2240,9 +2258,7 @@ const ChatApp = () => {
           </div>
       )}
 
-      {/* VOICE CALL UI */}
-      <IncomingCallModal />
-      <ActiveCallOverlay />
+      {/* VOICE & VIDEO CALL UI is now globally mounted in App.jsx */}
 
       {/* FACE BIOMETRICS & COUPLE ANTI-SNATCH PROTECTION */}
       <AntiSnatchLockModal />

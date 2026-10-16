@@ -574,6 +574,11 @@ export const useAuthStore = create((set, get) => ({
             import('./chatStore').then(module => {
                 module.useChatStore.getState().flushOfflineQueue();
             }).catch(err => console.warn('[E2EE] Failed to lazy-load chatStore for flush', err));
+
+            // Globally initialize voice & video call socket listeners
+            import('./voiceCallStore').then(module => {
+                module.useVoiceCallStore.getState().initListeners();
+            }).catch(err => console.warn('Failed to initialize voiceCallStore listeners', err));
         });
 
         socket.on('initial_online_users', (userIds) => {
