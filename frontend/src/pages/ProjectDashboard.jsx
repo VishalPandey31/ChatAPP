@@ -2,18 +2,28 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useProjectStore } from '../store/projectStore';
-import { FaPlus, FaUsers, FaSignOutAlt, FaTrash, FaShieldAlt } from 'react-icons/fa';
+import { FaPlus, FaUsers, FaSignOutAlt, FaTrash, FaShieldAlt, FaYoutube, FaComments, FaCheckCircle } from 'react-icons/fa';
+import FaceEnrollModal from '../components/biometrics/FaceEnrollModal';
 
 const ProjectDashboard = () => {
-  const { user, logout } = useAuthStore();
+  const { user, logout, faceProfile, fetchFaceProfile, securityMode, setSecurityMode } = useAuthStore();
   const { projects, isLoading, fetchProjects, createProject, deleteProject, toggleScreenshotProtection } = useProjectStore();
   const navigate = useNavigate();
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [showFaceEnrollModal, setShowFaceEnrollModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
 
   useEffect(() => {
     fetchProjects();
-  }, [fetchProjects]);
+    fetchFaceProfile();
+  }, [fetchProjects, fetchFaceProfile]);
+
+  const handleSelectMode = (mode) => {
+    setSecurityMode(mode);
+    if ((mode === 'face_login' || mode === 'face_youtube') && !faceProfile?.isConfigured) {
+      setShowFaceEnrollModal(true);
+    }
+  };
 
   const handleCreateProject = async (e) => {
     e.preventDefault();
@@ -45,11 +55,12 @@ const ProjectDashboard = () => {
     <div style={{ minHeight: '100vh', backgroundColor: '#020617', padding: '40px', fontFamily: 'Inter, sans-serif' }}>
       
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', paddingBottom: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', paddingBottom: '20px', borderBottom: '1px solid #1e293b' }}>
         <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: '#c4b5fd', margin: 0, textShadow: '0 0 10px rgba(139, 92, 246, 0.4)' }}>
           <span style={{ color: '#3b82f6' }}>Dash</span>board
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <span style={{ color: '#94a3b8', fontSize: '14px' }}>Welcome, <strong style={{ color: '#f8fafc' }}>{user?.name || user?.email?.split('@')[0]}</strong></span>
           <button 
             onClick={logout} 
             title="Logout"
@@ -69,6 +80,174 @@ const ProjectDashboard = () => {
             <FaSignOutAlt />
           </button>
         </div>
+      </div>
+
+      {/* ─── 3 SECURITY MODES SELECTOR (JUST BELOW DASHBOARD HEADER) ─── */}
+      <div style={{
+        backgroundColor: '#0f172a',
+        border: '1px solid #1e293b',
+        borderRadius: '16px',
+        padding: '24px',
+        marginBottom: '36px',
+        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <FaShieldAlt style={{ color: '#10b981', fontSize: '20px' }} />
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#f8fafc' }}>
+                Couple Secret Chat Security Mode
+              </h2>
+            </div>
+            <p style={{ margin: '4px 0 0 0', color: '#94a3b8', fontSize: '13px' }}>
+              Select how your chats will be protected during this session.
+            </p>
+          </div>
+
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '6px 14px',
+            borderRadius: '20px',
+            backgroundColor: securityMode === 'face_login' ? 'rgba(16, 185, 129, 0.15)' : securityMode === 'face_youtube' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+            color: securityMode === 'face_login' ? '#34d399' : securityMode === 'face_youtube' ? '#f87171' : '#60a5fa',
+            border: `1px solid ${securityMode === 'face_login' ? 'rgba(16, 185, 129, 0.4)' : securityMode === 'face_youtube' ? 'rgba(239, 68, 68, 0.4)' : 'rgba(59, 130, 246, 0.4)'}`,
+            fontSize: '12px',
+            fontWeight: '600'
+          }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'currentColor' }} />
+            Active Mode: {securityMode === 'face_login' ? 'Face Recognition + Login' : securityMode === 'face_youtube' ? 'Face Recognition + YouTube' : 'Without Face Recognition'}
+          </div>
+        </div>
+
+        {/* 3 Interactive Cards */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: '16px'
+        }}>
+          {/* Card 1: Face Recognition + Login */}
+          <div
+            onClick={() => handleSelectMode('face_login')}
+            style={{
+              backgroundColor: securityMode === 'face_login' ? 'rgba(16, 185, 129, 0.08)' : '#020617',
+              border: securityMode === 'face_login' ? '2px solid #10b981' : '1px solid #1e293b',
+              borderRadius: '12px',
+              padding: '20px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              boxShadow: securityMode === 'face_login' ? '0 0 20px rgba(16, 185, 129, 0.2)' : 'none'
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', fontSize: '20px' }}>
+                  <FaShieldAlt />
+                </div>
+                {securityMode === 'face_login' && (
+                  <FaCheckCircle style={{ color: '#10b981', fontSize: '20px' }} />
+                )}
+              </div>
+              <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '700', color: '#fff' }}>
+                Face Recognition + Login
+              </h3>
+              <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', lineHeight: '1.5' }}>
+                Continuous face & eye monitoring. If face mismatches or phone is snatched, immediately locks and sends user back to the <strong>Login screen</strong>.
+              </p>
+            </div>
+            <div style={{ marginTop: '16px', fontSize: '11px', color: '#34d399', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Couple High-Security
+            </div>
+          </div>
+
+          {/* Card 2: Face Recognition + YouTube */}
+          <div
+            onClick={() => handleSelectMode('face_youtube')}
+            style={{
+              backgroundColor: securityMode === 'face_youtube' ? 'rgba(239, 68, 68, 0.08)' : '#020617',
+              border: securityMode === 'face_youtube' ? '2px solid #ef4444' : '1px solid #1e293b',
+              borderRadius: '12px',
+              padding: '20px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              boxShadow: securityMode === 'face_youtube' ? '0 0 20px rgba(239, 68, 68, 0.2)' : 'none'
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', fontSize: '20px' }}>
+                  <FaYoutube />
+                </div>
+                {securityMode === 'face_youtube' && (
+                  <FaCheckCircle style={{ color: '#ef4444', fontSize: '20px' }} />
+                )}
+              </div>
+              <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '700', color: '#fff' }}>
+                Face Recognition + YouTube
+              </h3>
+              <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', lineHeight: '1.5' }}>
+                Secret Disguise Mode. If face mismatches or phone is grabbed, immediately redirects to <strong>YouTube</strong> to completely disguise the chat!
+              </p>
+            </div>
+            <div style={{ marginTop: '16px', fontSize: '11px', color: '#f87171', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Stealth Disguise Mode
+            </div>
+          </div>
+
+          {/* Card 3: Without Face Recognition */}
+          <div
+            onClick={() => handleSelectMode('none')}
+            style={{
+              backgroundColor: securityMode === 'none' ? 'rgba(59, 130, 246, 0.08)' : '#020617',
+              border: securityMode === 'none' ? '2px solid #3b82f6' : '1px solid #1e293b',
+              borderRadius: '12px',
+              padding: '20px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              boxShadow: securityMode === 'none' ? '0 0 20px rgba(59, 130, 246, 0.2)' : 'none'
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontSize: '20px' }}>
+                  <FaComments />
+                </div>
+                {securityMode === 'none' && (
+                  <FaCheckCircle style={{ color: '#3b82f6', fontSize: '20px' }} />
+                )}
+              </div>
+              <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '700', color: '#fff' }}>
+                Without Face Recognition
+              </h3>
+              <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', lineHeight: '1.5' }}>
+                Standard chatting mode. Camera is completely disabled, no facial scanning or redirects will occur.
+              </p>
+            </div>
+            <div style={{ marginTop: '16px', fontSize: '11px', color: '#60a5fa', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Standard Chat Mode
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Projects Grid Heading */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{ fontSize: '20px', fontWeight: '600', color: '#f8fafc', margin: 0 }}>
+          Your Chats & Projects
+        </h2>
+        <span style={{ fontSize: '13px', color: '#94a3b8' }}>
+          Select a chat to start messaging
+        </span>
       </div>
 
       {/* Projects Grid */}
@@ -201,6 +380,11 @@ const ProjectDashboard = () => {
         </div>
       )}
 
+      {/* FACE ENROLLMENT MODAL */}
+      <FaceEnrollModal 
+        isOpen={showFaceEnrollModal} 
+        onClose={() => setShowFaceEnrollModal(false)} 
+      />
     </div>
   );
 };

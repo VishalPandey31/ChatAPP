@@ -58,6 +58,8 @@ const Login = () => {
     setLoadingMessage('');
   };
 
+  const isMismatchAlert = new URLSearchParams(window.location.search).get('alert') === 'mismatch';
+
   return (
     <div className="auth-container animate-fade-in">
       <div className="auth-box">
@@ -65,6 +67,28 @@ const Login = () => {
           <h2>User Login</h2>
           <p>Login with credentials provided by your Administrator.</p>
         </div>
+
+        {isMismatchAlert && (
+          <div style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            color: '#f87171',
+            padding: '12px 14px',
+            borderRadius: '10px',
+            marginBottom: '18px',
+            fontSize: '13px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            textAlign: 'left'
+          }}>
+            <span style={{ fontSize: '20px' }}>🚨</span>
+            <div>
+              <div style={{ fontWeight: 'bold' }}>Face Mismatch / Anti-Snatch Alert</div>
+              <div style={{ fontSize: '12px', opacity: 0.9 }}>Unauthorized face or unattended phone detected. Please log in again.</div>
+            </div>
+          </div>
+        )}
         
         {error && <div style={{ color: 'var(--danger-color)', marginBottom: '16px', fontSize: '14px', textAlign: 'center' }}>{error}</div>}
 

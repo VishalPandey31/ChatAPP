@@ -34,8 +34,15 @@ export const useAuthStore = create((set, get) => ({
     lockReason: null,
     isFaceEnrolling: false,
     showFaceSetupModal: false,
-    antiSnatchActive: true,
+    antiSnatchActive: (sessionStorage.getItem('chatapp_security_mode') || 'face_login') !== 'none',
+    securityMode: sessionStorage.getItem('chatapp_security_mode') || 'face_login', // 'face_login' | 'face_youtube' | 'none'
 
+    setSecurityMode: (mode) => {
+        try {
+            sessionStorage.setItem('chatapp_security_mode', mode);
+        } catch (e) {}
+        set({ securityMode: mode, antiSnatchActive: mode !== 'none' });
+    },
     setSecurityLocked: (locked, reason = null) => set({ isSecurityLocked: locked, lockReason: reason }),
     setShowFaceSetupModal: (show) => set({ showFaceSetupModal: show }),
     setAntiSnatchActive: (active) => set({ antiSnatchActive: active }),

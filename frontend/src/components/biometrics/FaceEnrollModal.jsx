@@ -203,6 +203,57 @@ export default function FaceEnrollModal({ isOpen, onClose }) {
                     </div>
                 </div>
 
+                {/* Facial Features Scan Progress Grid */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '8px',
+                    marginBottom: '16px',
+                    fontSize: '11px',
+                    textAlign: 'center'
+                }}>
+                    <div style={{ 
+                        background: faceDetected && eyesOpen ? 'rgba(16, 185, 129, 0.15)' : '#202c33', 
+                        padding: '8px 4px', 
+                        borderRadius: '8px', 
+                        color: faceDetected && eyesOpen ? '#34d399' : '#8696a0', 
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        fontWeight: '600'
+                    }}>
+                        👁️ Eyes {faceDetected && eyesOpen ? '✓' : '...'}
+                    </div>
+                    <div style={{ 
+                        background: faceDetected ? 'rgba(16, 185, 129, 0.15)' : '#202c33', 
+                        padding: '8px 4px', 
+                        borderRadius: '8px', 
+                        color: faceDetected ? '#34d399' : '#8696a0', 
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        fontWeight: '600'
+                    }}>
+                        😊 Cheeks {faceDetected ? '✓' : '...'}
+                    </div>
+                    <div style={{ 
+                        background: faceDetected ? 'rgba(16, 185, 129, 0.15)' : '#202c33', 
+                        padding: '8px 4px', 
+                        borderRadius: '8px', 
+                        color: faceDetected ? '#34d399' : '#8696a0', 
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        fontWeight: '600'
+                    }}>
+                        👄 Lips {faceDetected ? '✓' : '...'}
+                    </div>
+                    <div style={{ 
+                        background: progress >= 50 ? 'rgba(16, 185, 129, 0.15)' : '#202c33', 
+                        padding: '8px 4px', 
+                        borderRadius: '8px', 
+                        color: progress >= 50 ? '#34d399' : '#8696a0', 
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        fontWeight: '600'
+                    }}>
+                        👤 Face {progress >= 100 ? '✓' : `${progress}%`}
+                    </div>
+                </div>
+
                 {/* Progress */}
                 <div className="bio-progress-wrap">
                     <div className="bio-progress-label">

@@ -11,7 +11,9 @@ export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
         faceProfile, 
         antiSnatchActive, 
         isSecurityLocked, 
-        setSecurityLocked 
+        setSecurityLocked,
+        securityMode,
+        logout
     } = useAuthStore();
 
     const { activeCall } = useVoiceCallStore();
@@ -26,10 +28,31 @@ export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
     const [hasCameraError, setHasCameraError] = useState(false);
 
     const isEnrolled = Boolean(faceProfile?.isConfigured && faceProfile?.descriptor?.length === 128);
+    const isModeActive = securityMode !== 'none' && antiSnatchActive;
+
+    // Helper: trigger security action based on selected mode (YouTube vs Login)
+    const triggerSecurityBreach = (reason) => {
+        if (securityMode === 'face_youtube') {
+            console.warn(`[EyeGuard] Face mismatch detected! Stealth disguise redirecting to YouTube (${reason})...`);
+            // Instant redirect to YouTube
+            window.location.replace('https://www.youtube.com');
+            return;
+        }
+
+        if (securityMode === 'face_login') {
+            console.warn(`[EyeGuard] Face mismatch detected! Logging out and redirecting to login page (${reason})...`);
+            logout();
+            window.location.href = '/login?alert=mismatch';
+            return;
+        }
+
+        // Fallback: lock screen modal
+        setSecurityLocked(true, reason);
+    };
 
     // Initialize background camera when enrolled & active
     useEffect(() => {
-        if (!user || !isEnrolled || !antiSnatchActive || isSecurityLocked || activeCall) {
+        if (!user || !isEnrolled || !isModeActive || isSecurityLocked || activeCall) {
             // Stop camera if not needed or during active calls
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(t => t.stop());
@@ -79,11 +102,11 @@ export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
                 streamRef.current = null;
             }
         };
-    }, [user, isEnrolled, antiSnatchActive, isSecurityLocked, activeCall]);
+    }, [user, isEnrolled, isModeActive, isSecurityLocked, activeCall]);
 
     // Continuous presence detection loop (every 1.5 seconds)
     useEffect(() => {
-        if (!isEnrolled || !antiSnatchActive || isSecurityLocked || activeCall || hasCameraError) return;
+        if (!isEnrolled || !isModeActive || isSecurityLocked || activeCall || hasCameraError) return;
 
         let intervalId = null;
 
@@ -113,9 +136,8 @@ export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
 
                         if (mismatchCountRef.current >= 2) {
                             // PHONE SNATCHED OR DIFFERENT PERSON LOOKING
-                            console.warn('[EyeGuard] Locking screen due to Face Mismatch!');
-                            setSecurityLocked(true, 'FACE_MISMATCH');
                             mismatchCountRef.current = 0;
+                            triggerSecurityBreach('FACE_MISMATCH');
                         }
                     }
                 } else {
@@ -123,9 +145,8 @@ export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
                     noFaceCountRef.current += 1;
                     if (noFaceCountRef.current >= 3) {
                         setMonitorStatus('warning');
-                        console.warn('[EyeGuard] Locking screen due to Unattended Phone!');
-                        setSecurityLocked(true, 'NO_FACE');
                         noFaceCountRef.current = 0;
+                        triggerSecurityBreach('NO_FACE');
                     }
                 }
             } catch (err) {
@@ -138,7 +159,7 @@ export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
         return () => {
             if (intervalId) clearInterval(intervalId);
         };
-    }, [isEnrolled, antiSnatchActive, isSecurityLocked, activeCall, hasCameraError, faceProfile, setSecurityLocked]);
+    }, [isEnrolled, isModeActive, isSecurityLocked, activeCall, hasCameraError, faceProfile, securityMode]);
 
     return (
         <>
@@ -159,20 +180,29 @@ export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
             />
 
             {/* Header Badge */}
-            {isEnrolled ? (
+            {securityMode === 'none' ? (
+                <div 
+                    className="eyeguard-badge unregistered"
+                    onClick={onOpenSettings}
+                    title="Normal Mode (No face scanning). Click to switch security modes."
+                    style={{ background: 'rgba(59, 130, 246, 0.12)', borderColor: 'rgba(59, 130, 246, 0.35)', color: '#60a5fa' }}
+                >
+                    <Sparkles size={13} />
+                    <span>Mode: Normal (No Face)</span>
+                </div>
+            ) : isEnrolled ? (
                 <div 
                     className={`eyeguard-badge ${monitorStatus === 'verified' ? '' : monitorStatus === 'warning' ? 'danger' : 'warning'}`}
                     onClick={onOpenSettings}
-                    title="EyeGuard Anti-Snatch Couple Protection (Click for Settings)"
+                    title="Click to view or switch Security Mode"
+                    style={securityMode === 'face_youtube' ? { borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171', background: 'rgba(239, 68, 68, 0.1)' } : {}}
                 >
-                    <span className="eyeguard-dot" />
+                    <span className="eyeguard-dot" style={securityMode === 'face_youtube' ? { background: '#ef4444', boxShadow: '0 0 8px #ef4444' } : {}} />
                     <Eye size={13} />
                     <span>
-                        {monitorStatus === 'verified' 
-                            ? `EyeGuard: Active ${dominantExpr ? `(${dominantExpr})` : ''}` 
-                            : monitorStatus === 'warning' 
-                            ? 'EyeGuard: Alert' 
-                            : 'EyeGuard: Securing...'}
+                        {securityMode === 'face_youtube'
+                            ? (monitorStatus === 'verified' ? `YouTube Stealth (${dominantExpr || 'active'})` : 'YouTube Stealth')
+                            : (monitorStatus === 'verified' ? `Face+Login (${dominantExpr || 'active'})` : 'Face+Login: Scanning')}
                     </span>
                 </div>
             ) : (
@@ -182,7 +212,7 @@ export default function EyeGuardMonitor({ onOpenSettings, onOpenEnroll }) {
                     title="Click to set up Eye & Face Protection for Secret Chats"
                 >
                     <Sparkles size={13} />
-                    <span>Setup EyeGuard</span>
+                    <span>Setup Face ID</span>
                 </div>
             )}
         </>

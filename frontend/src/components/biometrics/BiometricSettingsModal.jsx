@@ -9,7 +9,9 @@ export default function BiometricSettingsModal({ isOpen, onClose, onOpenEnroll }
         antiSnatchActive, 
         setAntiSnatchActive, 
         deleteFaceProfile,
-        setSecurityLocked 
+        setSecurityLocked,
+        securityMode,
+        setSecurityMode 
     } = useAuthStore();
 
     const [isDeleting, setIsDeleting] = useState(false);
@@ -101,34 +103,88 @@ export default function BiometricSettingsModal({ isOpen, onClose, onOpenEnroll }
                         )}
                     </div>
 
-                    {/* Toggle Anti-Snatch */}
-                    {isEnrolled && (
-                        <div style={{
-                            background: '#202c33',
-                            borderRadius: 12,
-                            padding: 16,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            border: '1px solid rgba(255, 255, 255, 0.08)'
-                        }}>
-                            <div style={{ maxWidth: 260 }}>
-                                <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 2 }}>
-                                    Anti-Snatch Eye Tracking
-                                </div>
-                                <div style={{ fontSize: 12, color: '#8696a0', lineHeight: 1.4 }}>
-                                    Scans your face & eyes every second while chatting. If another person grabs the phone or face mismatches, chats lock instantly!
-                                </div>
-                            </div>
-
-                            <input 
-                                type="checkbox"
-                                checked={antiSnatchActive}
-                                onChange={(e) => setAntiSnatchActive(e.target.checked)}
-                                style={{ width: 22, height: 22, accentColor: '#00a884', cursor: 'pointer' }}
-                            />
+                    {/* Security Mode Options */}
+                    <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#e9edef', marginBottom: 8 }}>
+                            Security Action on Face Mismatch
                         </div>
-                    )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 10,
+                                background: securityMode === 'face_login' ? 'rgba(16, 185, 129, 0.12)' : '#202c33',
+                                border: securityMode === 'face_login' ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.06)',
+                                padding: '10px 12px',
+                                borderRadius: 10,
+                                cursor: 'pointer',
+                                fontSize: 13,
+                                color: '#fff'
+                            }}>
+                                <input 
+                                    type="radio" 
+                                    name="security_mode_opt" 
+                                    checked={securityMode === 'face_login'} 
+                                    onChange={() => setSecurityMode('face_login')} 
+                                    style={{ accentColor: '#10b981' }} 
+                                />
+                                <div>
+                                    <div style={{ fontWeight: 600 }}>🛡️ Face Recognition + Login</div>
+                                    <div style={{ fontSize: 11, color: '#8696a0' }}>Locks screen and kicks to Login page if face mismatches</div>
+                                </div>
+                            </label>
+
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 10,
+                                background: securityMode === 'face_youtube' ? 'rgba(239, 68, 68, 0.12)' : '#202c33',
+                                border: securityMode === 'face_youtube' ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.06)',
+                                padding: '10px 12px',
+                                borderRadius: 10,
+                                cursor: 'pointer',
+                                fontSize: 13,
+                                color: '#fff'
+                            }}>
+                                <input 
+                                    type="radio" 
+                                    name="security_mode_opt" 
+                                    checked={securityMode === 'face_youtube'} 
+                                    onChange={() => setSecurityMode('face_youtube')} 
+                                    style={{ accentColor: '#ef4444' }} 
+                                />
+                                <div>
+                                    <div style={{ fontWeight: 600 }}>📺 Face Recognition + YouTube</div>
+                                    <div style={{ fontSize: 11, color: '#8696a0' }}>Instantly opens YouTube to disguise chats if face mismatches</div>
+                                </div>
+                            </label>
+
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 10,
+                                background: securityMode === 'none' ? 'rgba(59, 130, 246, 0.12)' : '#202c33',
+                                border: securityMode === 'none' ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.06)',
+                                padding: '10px 12px',
+                                borderRadius: 10,
+                                cursor: 'pointer',
+                                fontSize: 13,
+                                color: '#fff'
+                            }}>
+                                <input 
+                                    type="radio" 
+                                    name="security_mode_opt" 
+                                    checked={securityMode === 'none'} 
+                                    onChange={() => setSecurityMode('none')} 
+                                    style={{ accentColor: '#3b82f6' }} 
+                                />
+                                <div>
+                                    <div style={{ fontWeight: 600 }}>💬 Without Face Recognition</div>
+                                    <div style={{ fontSize: 11, color: '#8696a0' }}>Normal chatting mode. Camera is disabled, no redirects.</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
 
                     {/* Test Lock Screen Button */}
                     {isEnrolled && (
