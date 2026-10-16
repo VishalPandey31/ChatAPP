@@ -11,12 +11,11 @@ const AdminLogin = () => {
   const { login, user } = useAuthStore();
   const navigate = useNavigate();
 
-  // Pre-warm: fire a health ping when this page mounts (supplements App.jsx global warm-up)
+  // Pre-warm: fire a health ping when this page mounts
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
   React.useEffect(() => {
-    if (user) { navigate('/projects'); return; }
     fetch(`${BACKEND_URL}/api/health`, { mode: 'cors', credentials: 'include' }).catch(() => {});
-  }, [user, navigate]);
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

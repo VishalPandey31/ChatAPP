@@ -384,8 +384,10 @@ export const useAuthStore = create((set, get) => ({
             const socket = get().socket;
             if (socket) socket.disconnect();
             setAuthToken(null);
-            set({ user: null, socket: null, onlineUsers: [], myPrivateKey: null, myPublicKeyJwk: null });
+            sessionStorage.clear();
+            localStorage.removeItem('token');
             Cookies.remove('token');
+            set({ user: null, socket: null, onlineUsers: [], myPrivateKey: null, myPublicKeyJwk: null });
             localStorage.removeItem('chatapp-offline-cache'); // Force clear persistent cache on logout
 
             import('../utils/pushService').then(({ unsubscribeFromPushNotifications }) => {
@@ -396,6 +398,15 @@ export const useAuthStore = create((set, get) => ({
         }
     },
     checkAuth: async () => {
+        // Enforce credentials on site open: If no active session token exists in sessionStorage,
+        // do not auto-login. Force user to login page to enter credentials!
+        const token = getAuthToken();
+        if (!token) {
+            Cookies.remove('token');
+            set({ user: null, isCheckingAuth: false });
+            return;
+        }
+
         try {
             const res = await apiFetch('/api/auth/me');
             if (!res.ok) {

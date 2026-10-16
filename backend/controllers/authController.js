@@ -4,14 +4,14 @@ import jwt from 'jsonwebtoken';
 
 const generateToken = (userId, res) => {
     const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
-        expiresIn: '30d'
+        expiresIn: '24h'
     });
 
     res.cookie('token', token, {
         httpOnly: true,
         sameSite: 'none',
-        secure: true,
-        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days persistent cookie
+        secure: true
+        // No maxAge => session cookie that expires when browser/tab session ends
     });
 
     return token;

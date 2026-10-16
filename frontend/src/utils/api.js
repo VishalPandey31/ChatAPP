@@ -5,10 +5,15 @@
  */
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+// Immediately purge any legacy persistent token so site always demands credentials on open
+try {
+    localStorage.removeItem('token');
+} catch (e) {}
 
 export const getAuthToken = () => {
     try {
-        return localStorage.getItem('token') || '';
+        // Scoped to active browser session/tab only - cleared when tab/browser closes
+        return sessionStorage.getItem('token') || '';
     } catch {
         return '';
     }
@@ -17,10 +22,11 @@ export const getAuthToken = () => {
 export const setAuthToken = (token) => {
     try {
         if (token) {
-            localStorage.setItem('token', token);
+            sessionStorage.setItem('token', token);
         } else {
-            localStorage.removeItem('token');
+            sessionStorage.removeItem('token');
         }
+        localStorage.removeItem('token');
     } catch (e) {
         console.warn('Could not persist auth token', e);
     }
