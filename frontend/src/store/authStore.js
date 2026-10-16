@@ -116,6 +116,15 @@ export const useAuthStore = create((set, get) => ({
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || 'Incorrect password');
             set({ isSecurityLocked: false, lockReason: null });
+
+            try {
+                sessionStorage.setItem('e2ee_session_pw', password);
+                if (get().user?.email) {
+                    sessionStorage.setItem('e2ee_session_email', get().user.email.toLowerCase().trim());
+                }
+                get().restoreKeyRingWithPassword(password).catch(() => {});
+            } catch (e) {}
+
             return true;
         } catch (e) {
             console.error('[FaceBio] Password unlock failed:', e);
@@ -126,6 +135,8 @@ export const useAuthStore = create((set, get) => ({
     // E2EE key pair for this session
     myPrivateKey: null, // CryptoKey (in-memory only, not stored in state permanently)
     myPublicKeyJwk: null, // JWK string (for sharing with backend)
+
+    hasPendingCloudBackupUnlock: false,
 
     _initE2EEKeys: async () => {
         if (initKeysPromise) return initKeysPromise;
@@ -180,27 +191,39 @@ export const useAuthStore = create((set, get) => ({
                         const backupData = await res.json();
                         if (backupData.encryptedKeyRing && typeof backupData.encryptedKeyRing === 'string' && backupData.encryptedKeyRing !== '[object Object]') {
                             hasServerBackup = true;
-                            if (window.__tempLoginPassword && window.__tempLoginEmail) {
-                                const deriveKey = await deriveBackupKey(window.__tempLoginPassword, window.__tempLoginEmail);
-                                const decryptedRaw = await decryptMessage(backupData.encryptedKeyRing, backupData.encryptedKeyRingIv, deriveKey);
-                                const restoredRing = JSON.parse(decryptedRaw);
+                            const sessionPw = window.__tempLoginPassword || sessionStorage.getItem('e2ee_session_pw');
+                            const sessionEmail = (window.__tempLoginEmail || sessionStorage.getItem('e2ee_session_email') || currentUser.email || '').toLowerCase().trim();
 
-                                // Merge cloud keys into local key ring so no history is lost
-                                let merged = false;
-                                for (const [kId, kData] of Object.entries(restoredRing.keys || {})) {
-                                    if (!storedKeyRing.keys[kId]) {
-                                        storedKeyRing.keys[kId] = kData;
+                            if (sessionPw && sessionEmail) {
+                                try {
+                                    const deriveKey = await deriveBackupKey(sessionPw, sessionEmail);
+                                    const decryptedRaw = await decryptMessage(backupData.encryptedKeyRing, backupData.encryptedKeyRingIv, deriveKey);
+                                    const restoredRing = JSON.parse(decryptedRaw);
+
+                                    // Merge cloud keys into local key ring so no history is lost
+                                    let merged = false;
+                                    for (const [kId, kData] of Object.entries(restoredRing.keys || {})) {
+                                        if (!storedKeyRing.keys[kId]) {
+                                            storedKeyRing.keys[kId] = kData;
+                                            merged = true;
+                                        }
+                                    }
+                                    // If local didn't have a current key but cloud did, adopt it
+                                    if (!storedKeyRing.currentKeyId && restoredRing.currentKeyId) {
+                                        storedKeyRing.currentKeyId = restoredRing.currentKeyId;
                                         merged = true;
                                     }
+                                    if (merged) {
+                                        localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
+                                        console.log('[E2EE] Successfully restored and merged cloud keys into local ring');
+                                    }
+                                    set({ hasPendingCloudBackupUnlock: false });
+                                } catch (decErr) {
+                                    console.warn('[E2EE] Failed to decrypt cloud key backup with session password', decErr);
+                                    set({ hasPendingCloudBackupUnlock: true });
                                 }
-                                // If local didn't have a current key but cloud did, adopt it
-                                if (!storedKeyRing.currentKeyId && restoredRing.currentKeyId) {
-                                    storedKeyRing.currentKeyId = restoredRing.currentKeyId;
-                                    merged = true;
-                                }
-                                if (merged) {
-                                    localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
-                                }
+                            } else {
+                                set({ hasPendingCloudBackupUnlock: true });
                             }
                         }
                     }
@@ -208,7 +231,7 @@ export const useAuthStore = create((set, get) => ({
                     console.warn('[E2EE] Failed checking/restoring backup from cloud', e);
                 }
 
-                // If currentKeyId is missing but we have keys, adopt the first available key
+                // If currentKeyId is missing but we have keys, adopt the newest available key
                 if (!storedKeyRing.currentKeyId && Object.keys(storedKeyRing.keys).length > 0) {
                     const availableIds = Object.keys(storedKeyRing.keys);
                     storedKeyRing.currentKeyId = availableIds[availableIds.length - 1];
@@ -226,18 +249,20 @@ export const useAuthStore = create((set, get) => ({
                     });
 
                     // Non-blocking background backup update if credentials available
-                    if (window.__tempLoginPassword && window.__tempLoginEmail) {
-                        get()._backupEncryptedKeyRing(storedKeyRing, window.__tempLoginPassword, window.__tempLoginEmail);
+                    const sessionPw = window.__tempLoginPassword || sessionStorage.getItem('e2ee_session_pw');
+                    const sessionEmail = (window.__tempLoginEmail || sessionStorage.getItem('e2ee_session_email') || currentUser.email || '').toLowerCase().trim();
+                    if (sessionPw && sessionEmail) {
+                        get()._backupEncryptedKeyRing(storedKeyRing, sessionPw, sessionEmail);
                     }
 
+                    initKeysPromise = null;
                     return { privateKey, publicKeyJwk: activePair.publicKeyJwk, keyId: storedKeyRing.currentKeyId };
                 }
 
+                // If server has backup but local has no keys and no password available
                 if (hasServerBackup && Object.keys(storedKeyRing.keys).length === 0) {
-                    // Only force logout if device has absolutely no keys and server has a backup requiring password
-                    console.warn('[E2EE] Critical: Server has backup but no password available to unlock! Forcing Logout.');
-                    get().logout();
-                    throw new Error('E2EE_UNLOCK_REQUIRED');
+                    console.warn('[E2EE] Server has backup but password needed to unlock. Retaining session and prompting for unlock.');
+                    set({ hasPendingCloudBackupUnlock: true });
                 }
 
                 // Generate new keypair securely scoped to this exact user
@@ -262,8 +287,10 @@ export const useAuthStore = create((set, get) => ({
                 });
 
                 // Since it's a completely new key, attempt background backup IF we have credentials
-                if (window.__tempLoginPassword && window.__tempLoginEmail) {
-                    get()._backupEncryptedKeyRing(storedKeyRing, window.__tempLoginPassword, window.__tempLoginEmail);
+                const sessionPw = window.__tempLoginPassword || sessionStorage.getItem('e2ee_session_pw');
+                const sessionEmail = (window.__tempLoginEmail || sessionStorage.getItem('e2ee_session_email') || currentUser.email || '').toLowerCase().trim();
+                if (sessionPw && sessionEmail) {
+                    get()._backupEncryptedKeyRing(storedKeyRing, sessionPw, sessionEmail);
                 }
 
                 initKeysPromise = null;
@@ -276,6 +303,67 @@ export const useAuthStore = create((set, get) => ({
         })();
 
         return initKeysPromise;
+    },
+
+    restoreKeyRingWithPassword: async (password) => {
+        const currentUser = get().user;
+        if (!currentUser || !password) throw new Error('Password is required');
+        const cleanEmail = (currentUser.email || '').toLowerCase().trim();
+        try {
+            const res = await apiFetch('/api/auth/keys/backup');
+            if (!res.ok) throw new Error('No backup available on server');
+            const backupData = await res.json();
+            if (!backupData.encryptedKeyRing) throw new Error('No backup key ring found');
+
+            const deriveKey = await deriveBackupKey(password, cleanEmail);
+            const decryptedRaw = await decryptMessage(backupData.encryptedKeyRing, backupData.encryptedKeyRingIv, deriveKey);
+            const restoredRing = JSON.parse(decryptedRaw);
+
+            const keyRingKey = `e2ee_keys_${currentUser._id}`;
+            let storedKeyRing = { currentKeyId: null, keys: {} };
+            try {
+                const raw = localStorage.getItem(keyRingKey);
+                if (raw) storedKeyRing = JSON.parse(raw);
+            } catch (e) {}
+            if (!storedKeyRing.keys) storedKeyRing.keys = {};
+
+            let merged = false;
+            for (const [kId, kData] of Object.entries(restoredRing.keys || {})) {
+                if (!storedKeyRing.keys[kId]) {
+                    storedKeyRing.keys[kId] = kData;
+                    merged = true;
+                }
+            }
+            if (!storedKeyRing.currentKeyId && restoredRing.currentKeyId) {
+                storedKeyRing.currentKeyId = restoredRing.currentKeyId;
+                merged = true;
+            }
+
+            localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
+            try {
+                sessionStorage.setItem('e2ee_session_pw', password);
+                sessionStorage.setItem('e2ee_session_email', cleanEmail);
+            } catch (e) {}
+
+            const activeKeyId = storedKeyRing.currentKeyId || Object.keys(storedKeyRing.keys)[0];
+            if (activeKeyId && storedKeyRing.keys[activeKeyId]) {
+                const privateKey = await importPrivateKey(storedKeyRing.keys[activeKeyId].privateKeyJwk);
+                set({
+                    myPrivateKey: privateKey,
+                    myPublicKeyJwk: storedKeyRing.keys[activeKeyId].publicKeyJwk,
+                    myCurrentKeyId: activeKeyId,
+                    myKeyRing: storedKeyRing,
+                    hasPendingCloudBackupUnlock: false
+                });
+            }
+
+            // Immediately trigger re-decryption across current chat
+            useChatStore.getState().redecryptCurrentMessages?.();
+            return true;
+        } catch (err) {
+            console.error('[E2EE] restoreKeyRingWithPassword failed:', err);
+            throw new Error('Incorrect password or invalid backup key');
+        }
     },
 
     _uploadPublicKey: async (keyData) => {
@@ -326,18 +414,26 @@ export const useAuthStore = create((set, get) => ({
                 setAuthToken(data.token);
             }
 
-            // Expose temporarily for PBKDF2
+            // Expose session credentials for zero-knowledge E2EE backup derivation
+            const cleanEmail = (data.email || credentials.email || '').toLowerCase().trim();
             window.__tempLoginPassword = credentials.password;
-            window.__tempLoginEmail = data.email || credentials.email;
+            window.__tempLoginEmail = cleanEmail;
+            try {
+                sessionStorage.setItem('e2ee_session_pw', credentials.password);
+                sessionStorage.setItem('e2ee_session_email', cleanEmail);
+            } catch (e) {}
 
             set({ user: data });
             get().connectSocket();
             get().fetchFaceProfile();
 
-            // Non-blocking: fire E2EE key init in background so login navigation is instant
-            get()._initE2EEKeys().then(keys => {
+            // Await key initialization so keys are 100% loaded and merged before navigation
+            try {
+                const keys = await get()._initE2EEKeys();
                 if (keys && keys.keyId) get()._uploadPublicKey(keys);
-            });
+            } catch (kErr) {
+                console.warn('[E2EE] Key initialization warning on login:', kErr);
+            }
 
             return true;
         } catch (err) {
@@ -361,17 +457,24 @@ export const useAuthStore = create((set, get) => ({
                 setAuthToken(data.token);
             }
 
-            // Expose temporarily for PBKDF2
+            const cleanEmail = (data.email || credentials.email || '').toLowerCase().trim();
             window.__tempLoginPassword = credentials.password;
-            window.__tempLoginEmail = data.email || credentials.email;
+            window.__tempLoginEmail = cleanEmail;
+            try {
+                sessionStorage.setItem('e2ee_session_pw', credentials.password);
+                sessionStorage.setItem('e2ee_session_email', cleanEmail);
+            } catch (e) {}
 
             set({ user: data });
             get().connectSocket();
 
-            // Non-blocking: fire E2EE key init in background so registration navigation is instant
-            get()._initE2EEKeys().then(keys => {
+            // Await key initialization so keys are 100% loaded before navigation
+            try {
+                const keys = await get()._initE2EEKeys();
                 if (keys && keys.keyId) get()._uploadPublicKey(keys);
-            });
+            } catch (kErr) {
+                console.warn('[E2EE] Key initialization warning on register:', kErr);
+            }
 
             return true;
         } catch (err) {
@@ -430,6 +533,8 @@ export const useAuthStore = create((set, get) => ({
             get().fetchFaceProfile();
             get()._initE2EEKeys().then(keys => {
                 if (keys && keys.keyId) get()._uploadPublicKey(keys);
+                // Trigger re-decryption pass across any currently rendered chat
+                import('./chatStore').then(m => m.useChatStore.getState().redecryptCurrentMessages?.());
             });
         } catch (err) {
             console.error(err);

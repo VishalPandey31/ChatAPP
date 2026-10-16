@@ -82,8 +82,19 @@ async function getSharedSecret(recipientId, myRequiredKeyId = null, theirRequire
             let myPrivateKey = null;
 
             // 1. Resolve My Private Key from Key Ring or Active State
-            if (myRequiredKeyId && authState.myKeyRing?.keys?.[myRequiredKeyId]) {
-                const jwkObj = authState.myKeyRing.keys[myRequiredKeyId];
+            let myKeyRing = authState.myKeyRing;
+            if (!myKeyRing) {
+                const myId = authState.user?._id;
+                if (myId) {
+                    try {
+                        const raw = localStorage.getItem(`e2ee_keys_${myId}`);
+                        if (raw) myKeyRing = JSON.parse(raw);
+                    } catch (e) {}
+                }
+            }
+
+            if (myRequiredKeyId && myKeyRing?.keys?.[myRequiredKeyId]) {
+                const jwkObj = myKeyRing.keys[myRequiredKeyId];
                 myPrivateKey = await importPrivateKey(jwkObj.privateKeyJwk);
             } else if (myRequiredKeyId === 'legacy') {
                 const myId = authState.user?._id;
@@ -209,15 +220,26 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         // Project fallback 1: look up the project directly in projectStore to find the other member
         if (!recipientId && msg.projectId) {
             try {
-                const project = useProjectStore.getState().projects.find(p => p._id === msg.projectId);
+                let projects = useProjectStore.getState().projects;
+                if (!projects || projects.length === 0) {
+                    const cachedProjects = localStorage.getItem('project-store');
+                    if (cachedProjects) {
+                        try {
+                            const parsed = JSON.parse(cachedProjects);
+                            projects = parsed.state?.projects || [];
+                        } catch (e) {}
+                    }
+                }
+                const project = (projects || []).find(p => (p._id || p.id) === msg.projectId);
                 if (project) {
                     const others = [project.admin, ...(project.collaborators || [])].filter(m => {
                         if (!m) return false;
-                        const mId = (typeof m === 'object' ? m._id : m).toString();
+                        const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
                         return mId !== myId;
                     });
                     if (others.length > 0) {
-                        recipientId = (typeof others[0] === 'object' ? others[0]._id : others[0]).toString();
+                        recipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
+                        useChatStore.getState().setActiveRecipientId(recipientId);
                     }
                 }
             } catch (e) {
@@ -234,6 +256,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
             });
             if (otherMsg) {
                 recipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                useChatStore.getState().setActiveRecipientId(recipientId);
             }
         }
 
@@ -281,6 +304,60 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                     return await decryptMessage(ciphertext, iv, legacyObj.sharedKey);
                 }
             } catch (e) {}
+
+            // 4. Exhaustive Multi-Key Self-Healing:
+            // If primary key lookup failed (e.g. key rotated or device ring out of sync),
+            // iterate over ALL known private keys on this device paired against ALL known public keys of recipient.
+            try {
+                const auth = useAuthStore.getState();
+                const currentUserId = auth.user?._id;
+                let activeRing = auth.myKeyRing;
+                if (!activeRing && currentUserId) {
+                    try {
+                        const raw = localStorage.getItem(`e2ee_keys_${currentUserId}`);
+                        if (raw) activeRing = JSON.parse(raw);
+                    } catch (e) {}
+                }
+
+                const myKeysList = Object.entries(activeRing?.keys || {});
+
+                // Fetch all recipient public keys
+                const kRes = await apiFetch(`/api/auth/keys/${recipientId}`);
+                if (kRes.ok) {
+                    const kData = await kRes.json();
+                    let candPubs = (kData.publicKeys || []).slice();
+                    if (kData.publicKey && !candPubs.some(k => k.publicKey === kData.publicKey)) {
+                        candPubs.push({ keyId: 'active', publicKey: kData.publicKey });
+                    }
+
+                    for (const [mKeyId, mKeyObj] of myKeysList) {
+                        if (!mKeyObj?.privateKeyJwk) continue;
+                        let candPriv = null;
+                        try {
+                            candPriv = await importPrivateKey(mKeyObj.privateKeyJwk);
+                        } catch (e) { continue; }
+
+                        for (const theirKeyObj of candPubs) {
+                            if (!theirKeyObj?.publicKey) continue;
+                            try {
+                                const candPub = await importPublicKey(theirKeyObj.publicKey);
+                                const testSecret = await deriveSharedSecret(candPriv, candPub);
+                                const decrypted = await decryptMessage(ciphertext, iv, testSecret);
+                                if (decrypted !== null && decrypted !== undefined) {
+                                    // Found a matching key combination! Cache it so future messages resolve instantly
+                                    const winCacheKey = `${recipientId}_${mKeyId}_${theirKeyObj.keyId}`;
+                                    sharedSecretCache.set(winCacheKey, { sharedKey: testSecret, theirKeyId: theirKeyObj.keyId });
+                                    return decrypted;
+                                }
+                            } catch (decErr) {
+                                // mismatch, proceed to next combination
+                            }
+                        }
+                    }
+                }
+            } catch (exErr) {
+                console.warn('[E2EE] Exhaustive recovery attempt warning:', exErr);
+            }
 
             return null;
         };
@@ -438,15 +515,24 @@ export const useChatStore = create(
             getProjectMessages: async (projectId, force = false) => {
                 const cached = get().messagesCache[projectId];
 
-                // Self-healing: Detect permanently corrupted string in cache
-                const isCorrupted = cached && cached.some(m => typeof m.content === 'string' && (
-                    m.content.includes('key not yet available') ||
-                    m.content.includes('Message decryption failed') ||
-                    m.content.includes('Encrypted (Key Rotated)') ||
-                    m.content.includes('Encrypted (Key Missing)') ||
-                    m.content.includes('Encrypted (Missing Sender Key)') ||
-                    m.content.includes('Encryption Failed')
-                ));
+                // Self-healing: Detect permanently corrupted string in cache or un-decrypted messages
+                const isCorrupted = cached && cached.some(m => {
+                    if (!m) return false;
+                    if (m.decryptionState === 'FAILED_ROTATED' || m.decryptionState === 'FAILED_CRYPTO') return true;
+                    if (m.originalCiphertext) return true;
+                    if (typeof m.content === 'string') {
+                        return (
+                            m.content.startsWith('🔒 Encrypted') ||
+                            m.content.includes('key not yet available') ||
+                            m.content.includes('Message decryption failed') ||
+                            m.content.includes('Encrypted (Key Rotated)') ||
+                            m.content.includes('Encrypted (Key Missing)') ||
+                            m.content.includes('Encrypted (Missing Sender Key)') ||
+                            m.content.includes('Encryption Failed')
+                        );
+                    }
+                    return false;
+                });
 
                 // Scrub hanging SENDING states caused by page reloads dropping the pending queue.
                 const pendingQueue = get().pendingMessages || [];
@@ -479,15 +565,40 @@ export const useChatStore = create(
 
                     let { activeRecipientId } = get();
 
-                    // Heuristic extraction for activeRecipientId if unmounted or delayed in ChatApp
+                    // Robust extraction for activeRecipientId
                     if (!activeRecipientId) {
                         const myId = useAuthStore.getState().user?._id?.toString();
+                        // 1. Scan incoming messages for other sender
                         const otherMsg = data.find(m => {
                             const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
                             return sId && sId !== myId;
                         });
                         if (otherMsg) {
                             activeRecipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                            set({ activeRecipientId });
+                        }
+
+                        // 2. Fall back to projects list
+                        if (!activeRecipientId) {
+                            let projs = useProjectStore.getState().projects;
+                            if (!projs || projs.length === 0) {
+                                try {
+                                    await useProjectStore.getState().fetchProjects();
+                                    projs = useProjectStore.getState().projects;
+                                } catch (e) {}
+                            }
+                            const proj = (projs || []).find(p => (p._id || p.id) === projectId);
+                            if (proj) {
+                                const others = [proj.admin, ...(proj.collaborators || [])].filter(m => {
+                                    if (!m) return false;
+                                    const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
+                                    return mId !== myId;
+                                });
+                                if (others.length > 0) {
+                                    activeRecipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
+                                    set({ activeRecipientId });
+                                }
+                            }
                         }
                     }
 
@@ -512,6 +623,38 @@ export const useChatStore = create(
                     console.error(error);
                     set({ isMessagesLoading: false });
                 }
+            },
+
+            redecryptCurrentMessages: async () => {
+                const { messages, currentProjectId, activeRecipientId } = get();
+                if (!messages || messages.length === 0) return;
+
+                const hasPending = messages.some(m => 
+                    m.decryptionState || 
+                    m.originalCiphertext || 
+                    (typeof m.content === 'string' && m.content.startsWith('🔒 Encrypted'))
+                );
+                if (!hasPending) return;
+
+                console.log('[E2EE] Re-decrypting messages with newly restored keys...');
+                const updated = await Promise.all(
+                    messages.map(async (msg) => {
+                        if (msg.decryptionState || (typeof msg.content === 'string' && msg.content.startsWith('🔒 Encrypted')) || msg.originalCiphertext) {
+                            const raw = {
+                                ...msg,
+                                content: msg.originalCiphertext || msg.content,
+                                encryptionVersion: 1
+                            };
+                            return await decryptSingleMessage(raw, activeRecipientId);
+                        }
+                        return msg;
+                    })
+                );
+
+                set(state => ({
+                    messages: state.currentProjectId === currentProjectId ? updated : state.messages,
+                    messagesCache: currentProjectId ? { ...state.messagesCache, [currentProjectId]: updated } : state.messagesCache
+                }));
             },
 
             loadMoreProjectMessages: async (projectId) => {
