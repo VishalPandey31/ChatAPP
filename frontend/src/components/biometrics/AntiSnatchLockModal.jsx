@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShieldAlert, KeyRound, LogOut, CheckCircle2, Eye, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ShieldAlert, KeyRound, LogOut, CheckCircle2, Eye, EyeOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { loadFaceModels, detectFaceInVideo, compareFaceDescriptors } from '../../utils/faceRecognitionService';
 import './Biometrics.css';
@@ -8,13 +8,39 @@ export default function AntiSnatchLockModal() {
     const { isSecurityLocked, lockReason, faceProfile, setSecurityLocked, unlockWithPassword, logout } = useAuthStore();
     const videoRef = useRef(null);
     const streamRef = useRef(null);
+    const pwdInputRef = useRef(null);
 
     const [password, setPassword] = useState('');
     const [pwdError, setPwdError] = useState('');
+    const [showPasswordText, setShowPasswordText] = useState(false);
     const [isVerifyingPwd, setIsVerifyingPwd] = useState(false);
     const [scannerStatus, setScannerStatus] = useState('Position face to unlock...');
     const [isMatching, setIsMatching] = useState(false);
     const [unlockedSuccess, setUnlockedSuccess] = useState(false);
+
+    // Always reset password to completely empty whenever screen locks - enforce manual typing
+    useEffect(() => {
+        if (isSecurityLocked) {
+            setPassword('');
+            setPwdError('');
+            setIsVerifyingPwd(false);
+            if (pwdInputRef.current) {
+                pwdInputRef.current.value = '';
+            }
+            const t1 = setTimeout(() => {
+                setPassword('');
+                if (pwdInputRef.current) pwdInputRef.current.value = '';
+            }, 60);
+            const t2 = setTimeout(() => {
+                setPassword('');
+                if (pwdInputRef.current) pwdInputRef.current.value = '';
+            }, 250);
+            return () => {
+                clearTimeout(t1);
+                clearTimeout(t2);
+            };
+        }
+    }, [isSecurityLocked]);
 
     // Initialize camera scanner for instant biometric re-unlock
     useEffect(() => {
@@ -105,15 +131,20 @@ export default function AntiSnatchLockModal() {
 
     const handlePasswordSubmit = async (e) => {
         e.preventDefault();
-        if (!password.trim()) return;
+        const pwdToVerify = password.trim();
+        if (!pwdToVerify) return;
 
         setIsVerifyingPwd(true);
         setPwdError('');
 
         try {
-            await unlockWithPassword(password);
+            await unlockWithPassword(pwdToVerify);
+            setPassword('');
+            if (pwdInputRef.current) pwdInputRef.current.value = '';
             setUnlockedSuccess(true);
         } catch (err) {
+            setPassword('');
+            if (pwdInputRef.current) pwdInputRef.current.value = '';
             setPwdError(err.message || 'Incorrect password.');
         } finally {
             setIsVerifyingPwd(false);
@@ -159,17 +190,60 @@ export default function AntiSnatchLockModal() {
                 <span>{scannerStatus}</span>
             </div>
 
-            {/* Password Unlock Alternative */}
+            {/* Password Unlock Alternative - Strictly Manual Typing */}
             <div className="antisnatch-unlock-card">
-                <form onSubmit={handlePasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <input 
-                        type="password"
-                        placeholder="Enter your account password to unlock"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="antisnatch-pwd-input"
-                        autoFocus
-                    />
+                <form 
+                    onSubmit={handlePasswordSubmit} 
+                    autoComplete="off" 
+                    style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+                >
+                    {/* Hidden decoys to divert browser autofill */}
+                    <input type="text" name="decoy_username" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
+                    <input type="password" name="decoy_password" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
+
+                    <div style={{ position: 'relative', width: '100%' }}>
+                        <input 
+                            ref={pwdInputRef}
+                            type={showPasswordText ? "text" : "password"}
+                            name="one_time_security_pin"
+                            id="manual_unlock_security_key"
+                            placeholder="Type password manually to unlock"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="antisnatch-pwd-input"
+                            style={{ paddingRight: '40px' }}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck="false"
+                            data-lpignore="true"
+                            data-1p-ignore="true"
+                            data-bwignore="true"
+                            data-form-type="other"
+                            autoFocus
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowPasswordText(!showPasswordText)}
+                            style={{
+                                position: 'absolute',
+                                right: '10px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                background: 'none',
+                                border: 'none',
+                                color: '#8696a0',
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center'
+                            }}
+                            title={showPasswordText ? "Hide password" : "Show password"}
+                        >
+                            {showPasswordText ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                    </div>
+
                     {pwdError && (
                         <div style={{ color: '#f87171', fontSize: 12, textAlign: 'left' }}>
                             {pwdError}
