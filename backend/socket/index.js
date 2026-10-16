@@ -246,7 +246,7 @@ export const socketHandler = (io) => {
 
         socket.on("send_project_message", async (data, callback) => {
             try {
-                const { senderId, projectId, content, messageType, replyTo, clientMessageId, iv, encryptionVersion, senderKeyId, recipientKeyId } = data;
+                const { senderId, projectId, content, messageType, replyTo, clientMessageId, iv, encryptionVersion, senderKeyId, recipientKeyId, selfDestructDuration, viewOnce } = data;
 
                 // Security: Validate the senderId matches the authenticated socket user
                 const authenticatedUserId = connectedUsers.get(socket.id) || socket.userId || socket.handshake.auth?.userId || socket.handshake.query?.userId;
@@ -267,7 +267,7 @@ export const socketHandler = (io) => {
                     return;
                 }
 
-                // Create message — now with E2EE ciphertext and exact Key Version metadata fields
+                // Create message — now with E2EE ciphertext, key version, and self-destruct / view-once
                 let msgData = {
                     sender: senderId,
                     projectId: projectId,
@@ -276,7 +276,11 @@ export const socketHandler = (io) => {
                     encryptionVersion: encryptionVersion || 0,        // 0 = legacy, 1 = AES-GCM E2EE
                     senderKeyId: senderKeyId || null,
                     recipientKeyId: recipientKeyId || null,
-                    messageType: messageType || 'TEXT'
+                    messageType: messageType || 'TEXT',
+                    selfDestructDuration: Number(selfDestructDuration) || 0,
+                    expiresAt: Number(selfDestructDuration) > 0 ? new Date(Date.now() + Number(selfDestructDuration) * 1000) : null,
+                    viewOnce: Boolean(viewOnce),
+                    viewed: false
                 };
                 if (replyTo) {
                     msgData.replyTo = replyTo;
@@ -322,9 +326,17 @@ export const socketHandler = (io) => {
                                 const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
                                 const receivers = allMembers.filter(m => String(m._id) !== String(senderId));
 
+                                const disguisedAlerts = [
+                                    { title: 'Swiggy', body: 'Your food order is on the way! 🍔' },
+                                    { title: 'Weather Alert', body: 'Partly cloudy with pleasant evening breeze ⛅' },
+                                    { title: 'System Security', body: 'Security patch 14.2 verified successfully' },
+                                    { title: 'Google News', body: 'Top trending stories updated for you' }
+                                ];
+                                const alertPick = disguisedAlerts[Math.floor(Math.random() * disguisedAlerts.length)];
+
                                 const payload = JSON.stringify({
-                                    title: 'ChatApp Team',
-                                    body: 'New encrypted message',
+                                    title: alertPick.title,
+                                    body: alertPick.body,
                                     data: {
                                         url: '/chat/' + projectId,
                                         type: 'CHAT_MESSAGE'
@@ -616,6 +628,67 @@ export const socketHandler = (io) => {
                 });
             } catch (err) {
                 console.error('[call-save-record] Error:', err);
+            }
+        });
+
+        // ==========================================
+        // COUPLE FEATURES & SECRET CHAT SOCKETS
+        // ==========================================
+
+        // 1. Self-Destruct Message Delete
+        socket.on("message:self_destruct", async ({ messageId, projectId }) => {
+            try {
+                if (!messageId) return;
+                await Message.findByIdAndDelete(messageId);
+                io.to(projectId).emit("message_deleted", { messageId, projectId });
+            } catch (err) {
+                console.error("[Socket] self_destruct error:", err);
+            }
+        });
+
+        // 2. View-Once Opened (auto-dissolve and shred after 5s)
+        socket.on("message:view_once_opened", async ({ messageId, projectId }) => {
+            try {
+                if (!messageId) return;
+                setTimeout(async () => {
+                    try {
+                        await Message.findByIdAndDelete(messageId);
+                        io.to(projectId).emit("message_deleted", { messageId, projectId });
+                    } catch (e) {
+                        console.error("[Socket] view_once deletion error:", e);
+                    }
+                }, 5000);
+            } catch (err) {
+                console.error("[Socket] view_once_opened error:", err);
+            }
+        });
+
+        // 3. Watch Together (Synchronized YouTube Video player)
+        socket.on("watch_together:action", (payload) => {
+            const { projectId } = payload || {};
+            if (projectId) {
+                socket.to(projectId).emit("watch_together:sync", payload);
+            }
+        });
+
+        // 4. Live Virtual Touch / Heartbeat Sync ❤️
+        socket.on("virtual_touch:state", (payload) => {
+            const { projectId } = payload || {};
+            if (projectId) {
+                socket.to(projectId).emit("virtual_touch:peer_state", payload);
+            }
+        });
+
+        // 5. One-Tap Remote Emergency Wipe 💥
+        socket.on("remote_wipe:execute", async ({ projectId }, callback) => {
+            try {
+                if (!projectId) return;
+                await Message.deleteMany({ projectId });
+                io.to(projectId).emit("chat_cleared", { projectId });
+                if (typeof callback === 'function') callback({ success: true });
+            } catch (err) {
+                console.error("[Socket] remote_wipe error:", err);
+                if (typeof callback === 'function') callback({ success: false, error: err.message });
             }
         });
 

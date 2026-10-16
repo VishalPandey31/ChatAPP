@@ -84,6 +84,26 @@ const messageSchema = new mongoose.Schema({
         type: String,
         enum: ['SENT', 'DELIVERED', 'READ'],
         default: 'SENT'
+    },
+    selfDestructDuration: {
+        type: Number, // In seconds (0 = disabled, e.g. 10, 30, 60, 3600, 86400)
+        default: 0
+    },
+    expiresAt: {
+        type: Date,
+        default: null
+    },
+    viewOnce: {
+        type: Boolean,
+        default: false
+    },
+    viewed: {
+        type: Boolean,
+        default: false
+    },
+    viewedAt: {
+        type: Date,
+        default: null
     }
 }, { timestamps: true });
 

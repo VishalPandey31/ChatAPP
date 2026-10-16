@@ -33,6 +33,9 @@ export const useVoiceCallStore = create((set, get) => ({
     isVideoMuted: false,
     isFrontCamera: true,
     iceCandidateQueue: [],
+    isWhisperMode: false,
+    toggleWhisperMode: () => set(s => ({ isWhisperMode: !s.isWhisperMode })),
+    setWhisperMode: (val) => set({ isWhisperMode: val }),
 
     // Track connection time for duration calculation
     connectedAt: null,
@@ -368,8 +371,18 @@ export const useVoiceCallStore = create((set, get) => ({
 
         try {
             const isVideoCall = callType === 'video';
+            const { isWhisperMode } = get();
             const constraints = {
-                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                audio: isWhisperMode ? {
+                    echoCancellation: true,
+                    noiseSuppression: false, // Keep subtle whisper nuances
+                    autoGainControl: true,
+                    channelCount: 1
+                } : { 
+                    echoCancellation: true, 
+                    noiseSuppression: true, 
+                    autoGainControl: true 
+                },
                 video: isVideoCall ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } : false
             };
 

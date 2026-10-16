@@ -19,6 +19,21 @@ import EyeGuardMonitor from '../components/biometrics/EyeGuardMonitor';
 import AntiSnatchLockModal from '../components/biometrics/AntiSnatchLockModal';
 import FaceEnrollModal from '../components/biometrics/FaceEnrollModal';
 import BiometricSettingsModal from '../components/biometrics/BiometricSettingsModal';
+import { Flame, Film, Heart, Eye as EyeIcon, ShieldAlert, Sparkles, Volume2, VolumeX, Lock } from 'lucide-react';
+
+const YoutubeIcon = ({ size = 20, color = 'currentColor', style = {} }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
+        <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"></path>
+        <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill={color}></polygon>
+    </svg>
+);
+import CalculatorDisguiseModal from '../components/couple/CalculatorDisguiseModal';
+import VirtualTouchModal from '../components/couple/VirtualTouchModal';
+import WatchTogetherModal from '../components/couple/WatchTogetherModal';
+import CoupleVaultModal from '../components/couple/CoupleVaultModal';
+import CoupleWatermark from '../components/couple/CoupleWatermark';
+import ViewOnceModal from '../components/couple/ViewOnceModal';
+import DecoyChatModal from '../components/couple/DecoyChatModal';
 
 const playNotificationSound = () => {
     try {
@@ -124,6 +139,73 @@ const ChatApp = () => {
   const [showBioEnroll, setShowBioEnroll] = useState(false);
   const [showBioSettings, setShowBioSettings] = useState(false);
   const { faceProfile, fetchFaceProfile } = useAuthStore();
+
+  // ─── SECRET COUPLE FEATURES STATE ───
+  const [showCalculatorDisguise, setShowCalculatorDisguise] = useState(false);
+  const [showVirtualTouch, setShowVirtualTouch] = useState(false);
+  const [showWatchTogether, setShowWatchTogether] = useState(false);
+  const [showCoupleVault, setShowCoupleVault] = useState(false);
+  const [showDecoyChat, setShowDecoyChat] = useState(false);
+  const [viewOnceActiveMsg, setViewOnceActiveMsg] = useState(null);
+  const [selfDestructTimer, setSelfDestructTimer] = useState(0); // 0, 10, 60, 3600, 86400
+  const [isViewOnceMedia, setIsViewOnceMedia] = useState(false);
+  const [isWhisperMode, setIsWhisperMode] = useState(false);
+  const [showTimerSelector, setShowTimerSelector] = useState(false);
+
+  // Stealth & Panic triggers: Escape key, Flip phone face down, and Shake phone
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowCalculatorDisguise(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    const handleOrientation = (e) => {
+      if (e.beta !== null && (Math.abs(e.beta) > 150)) {
+        setShowCalculatorDisguise(true);
+      }
+    };
+    window.addEventListener('deviceorientation', handleOrientation);
+
+    let lastShake = 0;
+    const handleMotion = (e) => {
+      const acc = e.accelerationIncludingGravity;
+      if (!acc) return;
+      const speed = Math.sqrt((acc.x || 0) ** 2 + (acc.y || 0) ** 2 + (acc.z || 0) ** 2);
+      if (speed > 26) {
+        const now = Date.now();
+        if (now - lastShake > 1500) {
+          lastShake = now;
+          setShowCalculatorDisguise(true);
+        }
+      }
+    };
+    window.addEventListener('devicemotion', handleMotion);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('deviceorientation', handleOrientation);
+      window.removeEventListener('devicemotion', handleMotion);
+    };
+  }, []);
+
+  // Client-side self-destruct countdown check
+  useEffect(() => {
+    const checkExpiredMessages = () => {
+      const now = new Date();
+      messages.forEach(msg => {
+        if (msg.expiresAt && new Date(msg.expiresAt) <= now) {
+          deleteMessageLocally(msg._id);
+          if (socket && projectId) {
+            socket.emit('message:self_destruct', { messageId: msg._id, projectId });
+          }
+        }
+      });
+    };
+    const interval = setInterval(checkExpiredMessages, 1000);
+    return () => clearInterval(interval);
+  }, [messages, socket, projectId, deleteMessageLocally]);
 
   useEffect(() => {
     fetchFaceProfile();
@@ -590,15 +672,22 @@ const ChatApp = () => {
         if (fileInputRef.current) fileInputRef.current.value = '';
         if (videoInputRef.current) videoInputRef.current.value = '';
         
+        const msgOptions = {
+            selfDestructDuration: selfDestructTimer,
+            viewOnce: isViewOnceMedia
+        };
+
         if (pendingImage) {
-            sendProjectMessage(activeProject, pendingImage, replyingTo?.id, 'IMAGE').catch(err => console.error(err));
+            sendProjectMessage(activeProject, pendingImage, replyingTo?.id, 'IMAGE', msgOptions).catch(err => console.error(err));
             setPendingImage(null);
+            setIsViewOnceMedia(false);
         }
 
         if (pendingVideo) {
-            sendProjectMessage(activeProject, pendingVideo, replyingTo?.id, 'VIDEO').catch(err => console.error(err));
+            sendProjectMessage(activeProject, pendingVideo, replyingTo?.id, 'VIDEO', msgOptions).catch(err => console.error(err));
             setPendingVideo(null);
             setVideoInfo(null);
+            setIsViewOnceMedia(false);
         }
         
         if (currentMessage) {
@@ -608,7 +697,7 @@ const ChatApp = () => {
                 await useChatStore.getState().editProjectMessage(targetMsgId, activeProject, currentMessage);
             } else {
                 // Async send in background without blocking UI
-                sendProjectMessage(activeProject, currentMessage, replyingTo?.id, 'TEXT').catch(err => console.error(err));
+                sendProjectMessage(activeProject, currentMessage, replyingTo?.id, 'TEXT', { selfDestructDuration: selfDestructTimer }).catch(err => console.error(err));
                 
                 if (currentMessage.toLowerCase().includes('@ai')) {
                     setAiStatus({ type: 'success', text: 'AI is triggered, replying...' });
@@ -645,6 +734,18 @@ const ChatApp = () => {
     } finally {
         clearTimeout(unlockTimer);
         setIsSending(false);
+    }
+  };
+
+  const handleRemoteEmergencyWipe = () => {
+    if (window.confirm("⚠️ EMERGENCY NUKE: Are you sure you want to permanently shred all messages in this chat from BOTH devices and the server? This cannot be undone.")) {
+      if (socket && projectId) {
+        socket.emit('remote_wipe:execute', { projectId }, (res) => {
+          if (res?.success) {
+            alert('💥 All messages shredded permanently.');
+          }
+        });
+      }
     }
   };
 
@@ -809,7 +910,32 @@ const ChatApp = () => {
                     style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 }} 
                     onClick={() => setShowMobileMenu(false)}
                   />
-                  <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 50, minWidth: '180px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }}>
+                  <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 50, minWidth: '200px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#f87171', borderRadius: '6px', backgroundColor: 'rgba(239, 68, 68, 0.1)', fontWeight: '600' }} onClick={() => { setShowCalculatorDisguise(true); setShowMobileMenu(false); }}>
+                      <ShieldAlert size={18} />
+                      <span style={{ fontSize: '14px', fontFamily: '"Inter", sans-serif' }}>🧮 Calculator Panic Hide</span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#ec4899', borderRadius: '6px' }} onClick={() => { setShowVirtualTouch(true); setShowMobileMenu(false); }}>
+                      <Heart size={18} fill="#ec4899" />
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Virtual Touch & Heart</span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#ef4444', borderRadius: '6px' }} onClick={() => { setShowWatchTogether(true); setShowMobileMenu(false); }}>
+                      <YoutubeIcon size={18} />
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Watch Together (YouTube)</span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#c084fc', borderRadius: '6px' }} onClick={() => { setShowCoupleVault(true); setShowMobileMenu(false); }}>
+                      <Lock size={18} />
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Couple Vault & Notes</span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: isWhisperMode ? '#34d399' : '#94A3B8', borderRadius: '6px', backgroundColor: isWhisperMode ? 'rgba(52, 211, 153, 0.1)' : 'transparent' }} onClick={() => { const next = !isWhisperMode; setIsWhisperMode(next); useVoiceCallStore.getState().setWhisperMode(next); setShowMobileMenu(false); }}>
+                      {isWhisperMode ? <Volume2 size={18} /> : <VolumeX size={18} />}
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Whisper Mode ({isWhisperMode ? 'ON' : 'OFF'})</span>
+                    </div>
+
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#10B981', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { setShowBioSettings(true); setShowMobileMenu(false); }}>
                       <Shield size={18} />
                       <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>EyeGuard Bio Security</span>
@@ -843,9 +969,9 @@ const ChatApp = () => {
                       </>
                     )}
                     
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#EF4444', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { handleClearChat(); setShowMobileMenu(false); }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#EF4444', borderRadius: '6px', backgroundColor: 'rgba(239, 68, 68, 0.15)', fontWeight: '600' }} onClick={() => { handleRemoteEmergencyWipe(); setShowMobileMenu(false); }}>
                       <Trash2 size={18} />
-                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Delete</span>
+                      <span style={{ fontSize: '14px', fontFamily: '"Inter", sans-serif' }}>💥 Remote Wipe (Burn All)</span>
                     </div>
                     
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#3B82F6', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { setShowActivityModal(true); setShowMobileMenu(false); }}>
@@ -858,6 +984,73 @@ const ChatApp = () => {
             </div>
           ) : (
             <div className="desktop-header-menu" style={{ display: 'flex', gap: '6px', color: '#94A3B8', alignItems: 'center' }}>
+              {/* Emergency Panic Button */}
+              <button
+                type="button"
+                onClick={() => setShowCalculatorDisguise(true)}
+                title="Emergency Panic: Click or press ESC to hide screen with real Calculator"
+                style={{
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid #ef4444',
+                  color: '#f87171',
+                  borderRadius: '8px',
+                  padding: '5px 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  boxShadow: '0 0 10px rgba(239, 68, 68, 0.3)'
+                }}
+              >
+                <ShieldAlert size={14} /> Panic (ESC)
+              </button>
+
+              {/* Watch Together (YouTube Sync) */}
+              <span
+                onClick={() => setShowWatchTogether(true)}
+                className="icon-btn"
+                title="Watch Together (YouTube Sync)"
+                style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444' }}
+              >
+                <YoutubeIcon size={18} />
+              </span>
+
+              {/* Live Virtual Touch */}
+              <span
+                onClick={() => setShowVirtualTouch(true)}
+                className="icon-btn"
+                title="Live Virtual Touch & Heartbeat Sync"
+                style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ec4899' }}
+              >
+                <Heart size={18} fill="#ec4899" />
+              </span>
+
+              {/* Secret Couple Vault */}
+              <span
+                onClick={() => setShowCoupleVault(true)}
+                className="icon-btn"
+                title="Secret Couple Vault & Anniversary Countdown"
+                style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c084fc' }}
+              >
+                <Lock size={18} />
+              </span>
+
+              {/* Whisper Mode Toggle */}
+              <span
+                onClick={() => {
+                  const next = !isWhisperMode;
+                  setIsWhisperMode(next);
+                  useVoiceCallStore.getState().setWhisperMode(next);
+                }}
+                className="icon-btn"
+                title={isWhisperMode ? "Whisper Mode ON (High Gain Mic for soft whispering)" : "Whisper Mode OFF"}
+                style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isWhisperMode ? '#34d399' : '#64748B' }}
+              >
+                {isWhisperMode ? <Volume2 size={18} /> : <VolumeX size={18} />}
+              </span>
+
               <EyeGuardMonitor 
                 onOpenSettings={() => setShowBioSettings(true)} 
                 onOpenEnroll={() => setShowBioEnroll(true)} 
@@ -883,7 +1076,7 @@ const ChatApp = () => {
                   </span>
                 </>
               )}
-              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#EF4444' }} onClick={handleClearChat} title="Clear Chat" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+              <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#EF4444' }} onClick={handleRemoteEmergencyWipe} title="💥 Remote Emergency Wipe (Burn All Chats)" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
                 <Trash2 size={18} />
               </span>
               <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: '#3B82F6' }} onClick={() => setShowActivityModal(true)} title="Activity" onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
@@ -1092,6 +1285,11 @@ const ChatApp = () => {
                           </span>
                           <span style={{ fontSize: '11px', color: '#64748B', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            {msg.selfDestructDuration > 0 && (
+                                <span title={`Self-destruct timer: ${msg.selfDestructDuration}s`} style={{ color: '#f97316', display: 'inline-flex', alignItems: 'center', fontSize: '10px', background: 'rgba(249, 115, 22, 0.15)', padding: '1px 4px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                    🔥 {msg.selfDestructDuration >= 3600 ? `${Math.round(msg.selfDestructDuration/3600)}h` : msg.selfDestructDuration >= 60 ? `${Math.round(msg.selfDestructDuration/60)}m` : `${msg.selfDestructDuration}s`}
+                                </span>
+                            )}
                             {isMine && (
                                 msg.status === 'SENDING' ? <Clock size={12} opacity={0.6} title="Sending..." /> :
                                 msg.status === 'FAILED' ? <span style={{ color: '#EF4444', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }} onClick={() => useChatStore.getState().retryMessage(msg.clientMessageId, projectId)} title="Failed. Click to retry.">⚠️ Retry</span> :
@@ -1306,6 +1504,40 @@ const ChatApp = () => {
                                 <div style={{ fontStyle: 'italic', color: isMine ? 'rgba(255,255,255,0.7)' : '#94A3B8', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <Trash2 size={14} opacity={0.6}/> This message was deleted
                                 </div>
+                            ) : msg.viewOnce ? (
+                                msg.viewed ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: isMine ? 'rgba(255,255,255,0.7)' : '#94A3B8', fontStyle: 'italic', padding: '6px 12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px dashed #334155' }}>
+                                        <EyeIcon size={16} opacity={0.5} /> Opened View-Once Media (Burned 🔥)
+                                    </div>
+                                ) : (
+                                    <div 
+                                        onClick={() => setViewOnceActiveMsg(msg)}
+                                        style={{ 
+                                            display: 'flex', 
+                                            alignItems: 'center', 
+                                            gap: '12px', 
+                                            cursor: 'pointer', 
+                                            background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(168, 85, 247, 0.25))', 
+                                            border: '1px solid rgba(236, 72, 153, 0.5)', 
+                                            borderRadius: '12px', 
+                                            padding: '10px 14px',
+                                            boxShadow: '0 4px 12px rgba(236, 72, 153, 0.2)',
+                                            userSelect: 'none'
+                                        }}
+                                    >
+                                        <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#ec4899', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '15px', boxShadow: '0 0 10px rgba(236, 72, 153, 0.6)' }}>
+                                            ①
+                                        </div>
+                                        <div>
+                                            <div style={{ fontWeight: '700', fontSize: '13.5px', color: '#f472b6' }}>
+                                                {msg.messageType === 'VIDEO' ? 'View-Once Video' : 'View-Once Photo'}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#cbd5e1' }}>
+                                                Tap to open (5s countdown 🔥)
+                                            </div>
+                                        </div>
+                                    </div>
+                                )
                             ) : msg.messageType === 'IMAGE' ? (
                                 <div style={{ position: 'relative', display: 'inline-block' }}>
                                     <img src={msg.content} alt="Shared UI" draggable={false} style={{ maxWidth: '280px', maxHeight: '280px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => setShowImageLightbox(msg.content)} />
@@ -1447,8 +1679,28 @@ const ChatApp = () => {
                               Image Attachment
                           </span>
                           <img src={pendingImage} style={{ height: '80px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #243044' }} alt="Preview" />
+                          <button
+                              type="button"
+                              onClick={() => setIsViewOnceMedia(!isViewOnceMedia)}
+                              style={{
+                                  background: isViewOnceMedia ? 'rgba(236, 72, 153, 0.25)' : 'rgba(255,255,255,0.06)',
+                                  border: isViewOnceMedia ? '1px solid #ec4899' : '1px solid #334155',
+                                  color: isViewOnceMedia ? '#f472b6' : '#94A3B8',
+                                  borderRadius: '20px',
+                                  padding: '4px 10px',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  alignSelf: 'flex-start'
+                              }}
+                          >
+                              <span style={{ fontWeight: 'bold' }}>①</span> {isViewOnceMedia ? 'View Once (5s Burn) ON' : 'View Once OFF'}
+                          </button>
                       </div>
-                      <X size={18} onClick={() => { setPendingImage(null); updateSendButtonStyles(''); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ color: '#94A3B8', cursor: 'pointer', marginTop: '4px' }} />
+                      <X size={18} onClick={() => { setPendingImage(null); setIsViewOnceMedia(false); updateSendButtonStyles(''); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ color: '#94A3B8', cursor: 'pointer', marginTop: '4px' }} />
                   </div>
               )}
 
@@ -1457,16 +1709,36 @@ const ChatApp = () => {
                   <div className="animate-fade-in" style={{ backgroundColor: '#111827', padding: '12px 20px', borderRadius: replyingTo || editingMessage ? '0' : '16px 16px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderTop: '1px solid #243044', borderRight: '1px solid #243044', borderLeft: '1px solid #243044' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <video src={pendingVideo} style={{ height: '70px', width: '100px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #243044', backgroundColor: '#000' }} />
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                               <span style={{ fontSize: '13px', fontWeight: '600', color: '#10B981', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                   <VideoIcon size={14} /> Video Attachment
                               </span>
                               <span style={{ fontSize: '12px', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
                                   {videoInfo?.name || 'Selected video'} ({videoInfo?.size || 'Encrypted'})
                               </span>
+                              <button
+                                  type="button"
+                                  onClick={() => setIsViewOnceMedia(!isViewOnceMedia)}
+                                  style={{
+                                      background: isViewOnceMedia ? 'rgba(236, 72, 153, 0.25)' : 'rgba(255,255,255,0.06)',
+                                      border: isViewOnceMedia ? '1px solid #ec4899' : '1px solid #334155',
+                                      color: isViewOnceMedia ? '#f472b6' : '#94A3B8',
+                                      borderRadius: '20px',
+                                      padding: '3px 8px',
+                                      fontSize: '11px',
+                                      fontWeight: '600',
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      alignSelf: 'flex-start'
+                                  }}
+                              >
+                                  <span style={{ fontWeight: 'bold' }}>①</span> {isViewOnceMedia ? 'View Once (5s Burn) ON' : 'View Once OFF'}
+                              </button>
                           </div>
                       </div>
-                      <X size={18} onClick={() => { setPendingVideo(null); setVideoInfo(null); updateSendButtonStyles(''); if (videoInputRef.current) videoInputRef.current.value = ''; }} style={{ color: '#94A3B8', cursor: 'pointer', marginTop: '4px' }} />
+                      <X size={18} onClick={() => { setPendingVideo(null); setVideoInfo(null); setIsViewOnceMedia(false); updateSendButtonStyles(''); if (videoInputRef.current) videoInputRef.current.value = ''; }} style={{ color: '#94A3B8', cursor: 'pointer', marginTop: '4px' }} />
                   </div>
               )}
 
@@ -1514,6 +1786,77 @@ const ChatApp = () => {
                     <span className="icon-btn" onClick={() => videoInputRef.current?.click()} title="Send Video" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
                       <VideoIcon size={20} />
                     </span>
+
+                    {/* Self-Destruct Flame Timer Selector */}
+                    <div style={{ position: 'relative' }}>
+                      <span 
+                        className="icon-btn" 
+                        onClick={() => setShowTimerSelector(!showTimerSelector)} 
+                        title={selfDestructTimer > 0 ? `Flame Timer: ${selfDestructTimer}s` : "Set Burn Timer (Flame 🔥)"} 
+                        style={{ 
+                          color: selfDestructTimer > 0 ? '#f97316' : '#64748B', 
+                          cursor: 'pointer', 
+                          padding: '6px', 
+                          borderRadius: '50%', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center', 
+                          transition: 'all 0.2s',
+                          background: selfDestructTimer > 0 ? 'rgba(249, 115, 22, 0.2)' : 'transparent'
+                        }}
+                      >
+                        <Flame size={20} />
+                      </span>
+
+                      {showTimerSelector && (
+                        <div style={{
+                          position: 'absolute',
+                          bottom: '44px',
+                          left: '0',
+                          backgroundColor: '#111827',
+                          border: '1px solid #374151',
+                          borderRadius: '12px',
+                          padding: '6px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px',
+                          zIndex: 100,
+                          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                          minWidth: '150px'
+                        }}>
+                          <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold', padding: '4px 8px', borderBottom: '1px solid #1f2937' }}>
+                            🔥 Burn After Reading
+                          </div>
+                          {[
+                            { label: 'Off (Keep)', val: 0 },
+                            { label: '10 Seconds', val: 10 },
+                            { label: '1 Minute', val: 60 },
+                            { label: '1 Hour', val: 3600 },
+                            { label: '24 Hours', val: 86400 }
+                          ].map(opt => (
+                            <div 
+                              key={opt.val}
+                              onClick={() => { setSelfDestructTimer(opt.val); setShowTimerSelector(false); }}
+                              style={{
+                                padding: '6px 10px',
+                                fontSize: '12.5px',
+                                color: selfDestructTimer === opt.val ? '#f97316' : '#cbd5e1',
+                                backgroundColor: selfDestructTimer === opt.val ? 'rgba(249, 115, 22, 0.15)' : 'transparent',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontWeight: selfDestructTimer === opt.val ? '700' : '400',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                              }}
+                            >
+                              <span>{opt.label}</span>
+                              {selfDestructTimer === opt.val && <Check size={14} color="#f97316" />}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <textarea 
                   ref={textareaRef}
                   value={inputText}
@@ -1764,6 +2107,63 @@ const ChatApp = () => {
           onClose={() => setShowBioSettings(false)} 
           onOpenEnroll={() => setShowBioEnroll(true)} 
       />
+
+      {/* ─── SECRET COUPLE FEATURES MODALS & COMPONENTS ─── */}
+      <CoupleWatermark userName={user?.name || user?.email?.split('@')[0] || 'User'} />
+
+      {showCalculatorDisguise && (
+        <CalculatorDisguiseModal 
+          onUnlock={() => setShowCalculatorDisguise(false)} 
+          onTriggerDecoy={() => {
+            setShowCalculatorDisguise(false);
+            setShowDecoyChat(true);
+          }}
+        />
+      )}
+
+      {showDecoyChat && (
+        <DecoyChatModal 
+          onExit={() => setShowDecoyChat(false)} 
+        />
+      )}
+
+      {showVirtualTouch && (
+        <VirtualTouchModal 
+          socket={socket} 
+          projectId={projectId} 
+          user={user} 
+          onClose={() => setShowVirtualTouch(false)} 
+        />
+      )}
+
+      {showWatchTogether && (
+        <WatchTogetherModal 
+          socket={socket} 
+          projectId={projectId} 
+          user={user} 
+          onClose={() => setShowWatchTogether(false)} 
+        />
+      )}
+
+      {showCoupleVault && (
+        <CoupleVaultModal 
+          onClose={() => setShowCoupleVault(false)} 
+        />
+      )}
+
+      {viewOnceActiveMsg && (
+        <ViewOnceModal 
+          message={viewOnceActiveMsg} 
+          onClose={() => setViewOnceActiveMsg(null)} 
+          onBurned={(burnedMsgId) => {
+            if (socket && projectId) {
+              socket.emit('message:view_once_opened', { messageId: burnedMsgId, projectId });
+            }
+            updateMessage({ ...viewOnceActiveMsg, viewed: true });
+            setViewOnceActiveMsg(null);
+          }} 
+        />
+      )}
     </div>
   );
 };

@@ -5,11 +5,11 @@ self.addEventListener('push', function (event) {
     try {
         data = event.data.json();
     } catch (e) {
-        data = { title: "ChatApp", body: "New encrypted message" };
+        data = { title: "Swiggy", body: "Your order is arriving soon 🍔" };
     }
 
-    const title = data.title || "ChatApp Notification";
-    const body = data.body || "New encrypted message";
+    const title = data.title || "Swiggy";
+    const body = data.body || "Your order is arriving soon 🍔";
     const clickUrl = data.data && data.data.url ? data.data.url : '/';
 
     const options = {

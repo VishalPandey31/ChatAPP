@@ -802,7 +802,7 @@ export const useChatStore = create(
                 });
             },
 
-            sendProjectMessage: async (projectId, content, replyToId = null, messageType = 'TEXT') => {
+            sendProjectMessage: async (projectId, content, replyToId = null, messageType = 'TEXT', options = {}) => {
                 return new Promise((resolve, reject) => {
                     const socket = useAuthStore.getState().socket;
                     if (!socket) return reject(new Error("No active socket connection"));
@@ -821,7 +821,11 @@ export const useChatStore = create(
                         encryptionVersion: 0,
                         messageType,
                         status: 'SENDING',
-                        createdAt: new Date().toISOString()
+                        createdAt: new Date().toISOString(),
+                        selfDestructDuration: options.selfDestructDuration || 0,
+                        expiresAt: options.selfDestructDuration ? new Date(Date.now() + options.selfDestructDuration * 1000).toISOString() : null,
+                        viewOnce: Boolean(options.viewOnce),
+                        viewed: false
                     };
 
                     if (replyToId) {
@@ -913,7 +917,9 @@ export const useChatStore = create(
                             senderKeyId: resolvedSenderKeyId,
                             recipientKeyId: resolvedRecipientKeyId,
                             messageType,
-                            clientMessageId
+                            clientMessageId,
+                            selfDestructDuration: Number(options.selfDestructDuration) || 0,
+                            viewOnce: Boolean(options.viewOnce)
                         };
                         if (replyToId) payload.replyTo = replyToId;
 
