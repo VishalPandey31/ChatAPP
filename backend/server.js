@@ -120,14 +120,16 @@ mongoose.connect(process.env.MONGODB_URI)
       console.log(`Server running on port ${PORT}`);
 
       // Self-ping every 5 minutes to keep Render backend awake (Render sleeps after 15 min of inactivity)
-      const RENDER_URL = process.env.RENDER_EXTERNAL_URL || "https://chatapp-v6ug.onrender.com";
-      setInterval(() => {
-        https.get(`${RENDER_URL}/api/health`, (res) => {
-          console.log(`[Self-Ping] awake check: ${res.statusCode}`);
-        }).on('error', (err) => {
-          console.error('[Self-Ping] error:', err.message);
-        });
-      }, 5 * 60 * 1000); // 5 minutes (well within the 15-minute Render sleep window)
+      const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+      if (RENDER_URL) {
+        setInterval(() => {
+          https.get(`${RENDER_URL}/api/health`, (res) => {
+            console.log(`[Self-Ping] awake check: ${res.statusCode}`);
+          }).on('error', (err) => {
+            console.error('[Self-Ping] error:', err.message);
+          });
+        }, 5 * 60 * 1000); // 5 minutes (well within the 15-minute Render sleep window)
+      }
     });
   })
   .catch(err => {
