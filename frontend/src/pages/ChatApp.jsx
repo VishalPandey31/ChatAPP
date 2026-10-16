@@ -150,7 +150,7 @@ const ChatApp = () => {
   const [selfDestructTimer, setSelfDestructTimer] = useState(0); // 0, 10, 60, 3600, 86400
   const [isViewOnceMedia, setIsViewOnceMedia] = useState(false);
   const [isWhisperMode, setIsWhisperMode] = useState(false);
-  const [showTimerSelector, setShowTimerSelector] = useState(false);
+  const [showBurnTimerModal, setShowBurnTimerModal] = useState(false);
 
   // Stealth & Panic triggers: Escape key, Flip phone face down, and Shake phone
   useEffect(() => {
@@ -910,11 +910,56 @@ const ChatApp = () => {
                     style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 }} 
                     onClick={() => setShowMobileMenu(false)}
                   />
-                  <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 50, minWidth: '200px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }}>
+                  <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '12px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 50, minWidth: '220px', boxShadow: '0 10px 25px -3px rgba(0, 0, 0, 0.7)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#f87171', borderRadius: '6px', backgroundColor: 'rgba(239, 68, 68, 0.1)', fontWeight: '600' }} onClick={() => { setShowCalculatorDisguise(true); setShowMobileMenu(false); }}>
                       <ShieldAlert size={18} />
                       <span style={{ fontSize: '14px', fontFamily: '"Inter", sans-serif' }}>🧮 Calculator Panic Hide</span>
                     </div>
+
+                    {/* 🔥 Burn Timer / Self-Destruct Messages */}
+                    <div 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between', 
+                        padding: '10px 12px', 
+                        cursor: 'pointer', 
+                        color: selfDestructTimer > 0 ? '#f97316' : '#cbd5e1', 
+                        borderRadius: '6px', 
+                        backgroundColor: selfDestructTimer > 0 ? 'rgba(249, 115, 22, 0.15)' : 'transparent', 
+                        fontWeight: '600' 
+                      }} 
+                      onClick={() => { setShowBurnTimerModal(true); setShowMobileMenu(false); }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <Flame size={18} color={selfDestructTimer > 0 ? '#f97316' : '#94A3B8'} />
+                        <span style={{ fontSize: '14px', fontFamily: '"Inter", sans-serif' }}>
+                          🔥 Burn Timer ({selfDestructTimer === 0 ? 'Off' : selfDestructTimer >= 3600 ? `${Math.round(selfDestructTimer/3600)}h` : selfDestructTimer >= 60 ? `${Math.round(selfDestructTimer/60)}m` : `${selfDestructTimer}s`})
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '12px', color: '#f97316', fontWeight: 'bold' }}>›</span>
+                    </div>
+
+                    {/* 💥 Burn All (Remote Wipe) */}
+                    <div 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '12px', 
+                        padding: '10px 12px', 
+                        cursor: 'pointer', 
+                        color: '#EF4444', 
+                        borderRadius: '6px', 
+                        backgroundColor: 'rgba(239, 68, 68, 0.15)', 
+                        fontWeight: '700' 
+                      }} 
+                      onClick={() => { handleRemoteEmergencyWipe(); setShowMobileMenu(false); }}
+                    >
+                      <Trash2 size={18} />
+                      <span style={{ fontSize: '14px', fontFamily: '"Inter", sans-serif' }}>💥 Burn All (Remote Wipe)</span>
+                    </div>
+
+                    <div style={{ height: '1px', backgroundColor: '#1e293b', margin: '4px 0' }} />
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#ec4899', borderRadius: '6px' }} onClick={() => { setShowVirtualTouch(true); setShowMobileMenu(false); }}>
                       <Heart size={18} fill="#ec4899" />
@@ -968,11 +1013,6 @@ const ChatApp = () => {
                         </div>
                       </>
                     )}
-                    
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#EF4444', borderRadius: '6px', backgroundColor: 'rgba(239, 68, 68, 0.15)', fontWeight: '600' }} onClick={() => { handleRemoteEmergencyWipe(); setShowMobileMenu(false); }}>
-                      <Trash2 size={18} />
-                      <span style={{ fontSize: '14px', fontFamily: '"Inter", sans-serif' }}>💥 Remote Wipe (Burn All)</span>
-                    </div>
                     
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#3B82F6', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { setShowActivityModal(true); setShowMobileMenu(false); }}>
                       <UserCircle size={18} />
@@ -1035,6 +1075,16 @@ const ChatApp = () => {
                 style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c084fc' }}
               >
                 <Lock size={18} />
+              </span>
+
+              {/* Flame Burn Timer */}
+              <span
+                onClick={() => setShowBurnTimerModal(true)}
+                className="icon-btn"
+                title={selfDestructTimer > 0 ? `Flame Burn Timer Active: ${selfDestructTimer}s` : "Set Burn Timer (Flame 🔥)"}
+                style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: selfDestructTimer > 0 ? '#f97316' : '#94a3b8', background: selfDestructTimer > 0 ? 'rgba(249, 115, 22, 0.15)' : 'transparent' }}
+              >
+                <Flame size={18} />
               </span>
 
               {/* Whisper Mode Toggle */}
@@ -1742,6 +1792,14 @@ const ChatApp = () => {
                   </div>
               )}
 
+              {/* Active Burn Timer Notification Pill */}
+              {selfDestructTimer > 0 && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 12px', marginBottom: '8px', backgroundColor: 'rgba(249, 115, 22, 0.15)', border: '1px solid rgba(249, 115, 22, 0.35)', borderRadius: '16px', fontSize: '11.5px', color: '#f97316', fontWeight: '600' }}>
+                  <span>🔥 Burn Timer: {selfDestructTimer >= 3600 ? `${Math.round(selfDestructTimer/3600)}h` : selfDestructTimer >= 60 ? `${Math.round(selfDestructTimer/60)}m` : `${selfDestructTimer}s`} active</span>
+                  <X size={13} style={{ cursor: 'pointer', opacity: 0.8 }} onClick={() => setSelfDestructTimer(0)} title="Turn off Burn Timer" />
+                </div>
+              )}
+
               <div style={{ position: 'relative' }}>
                   {(showEmojiPicker || reactionMsgId) && (
                       <div style={{ position: 'fixed', inset: 0, zIndex: 100000, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)', animation: 'fadeIn 0.2s forwards' }} onClick={(e) => { if (e.target === e.currentTarget) { setShowEmojiPicker(false); setReactionMsgId(null); } }}>
@@ -1786,77 +1844,6 @@ const ChatApp = () => {
                     <span className="icon-btn" onClick={() => videoInputRef.current?.click()} title="Send Video" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
                       <VideoIcon size={20} />
                     </span>
-
-                    {/* Self-Destruct Flame Timer Selector */}
-                    <div style={{ position: 'relative' }}>
-                      <span 
-                        className="icon-btn" 
-                        onClick={() => setShowTimerSelector(!showTimerSelector)} 
-                        title={selfDestructTimer > 0 ? `Flame Timer: ${selfDestructTimer}s` : "Set Burn Timer (Flame 🔥)"} 
-                        style={{ 
-                          color: selfDestructTimer > 0 ? '#f97316' : '#64748B', 
-                          cursor: 'pointer', 
-                          padding: '6px', 
-                          borderRadius: '50%', 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center', 
-                          transition: 'all 0.2s',
-                          background: selfDestructTimer > 0 ? 'rgba(249, 115, 22, 0.2)' : 'transparent'
-                        }}
-                      >
-                        <Flame size={20} />
-                      </span>
-
-                      {showTimerSelector && (
-                        <div style={{
-                          position: 'absolute',
-                          bottom: '44px',
-                          left: '0',
-                          backgroundColor: '#111827',
-                          border: '1px solid #374151',
-                          borderRadius: '12px',
-                          padding: '6px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '4px',
-                          zIndex: 100,
-                          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                          minWidth: '150px'
-                        }}>
-                          <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold', padding: '4px 8px', borderBottom: '1px solid #1f2937' }}>
-                            🔥 Burn After Reading
-                          </div>
-                          {[
-                            { label: 'Off (Keep)', val: 0 },
-                            { label: '10 Seconds', val: 10 },
-                            { label: '1 Minute', val: 60 },
-                            { label: '1 Hour', val: 3600 },
-                            { label: '24 Hours', val: 86400 }
-                          ].map(opt => (
-                            <div 
-                              key={opt.val}
-                              onClick={() => { setSelfDestructTimer(opt.val); setShowTimerSelector(false); }}
-                              style={{
-                                padding: '6px 10px',
-                                fontSize: '12.5px',
-                                color: selfDestructTimer === opt.val ? '#f97316' : '#cbd5e1',
-                                backgroundColor: selfDestructTimer === opt.val ? 'rgba(249, 115, 22, 0.15)' : 'transparent',
-                                borderRadius: '6px',
-                                cursor: 'pointer',
-                                fontWeight: selfDestructTimer === opt.val ? '700' : '400',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between'
-                              }}
-                            >
-                              <span>{opt.label}</span>
-                              {selfDestructTimer === opt.val && <Check size={14} color="#f97316" />}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
                     <textarea 
                   ref={textareaRef}
                   value={inputText}
@@ -2163,6 +2150,65 @@ const ChatApp = () => {
             setViewOnceActiveMsg(null);
           }} 
         />
+      )}
+
+      {/* BURN TIMER / SELF-DESTRUCT SELECTOR MODAL */}
+      {showBurnTimerModal && (
+        <div 
+          style={{ position: 'fixed', inset: 0, zIndex: 999999, backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
+          onClick={() => setShowBurnTimerModal(false)}
+        >
+          <div 
+            style={{ backgroundColor: '#111827', border: '1px solid #334155', borderRadius: '16px', padding: '20px', width: '320px', maxWidth: '92vw', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.7)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f97316', fontWeight: '700', fontSize: '16px' }}>
+                <Flame size={20} />
+                <span>Burn After Reading</span>
+              </div>
+              <X size={18} style={{ color: '#94a3b8', cursor: 'pointer' }} onClick={() => setShowBurnTimerModal(false)} />
+            </div>
+
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 16px 0', lineHeight: '1.4' }}>
+              Messages will automatically self-destruct from both devices and server after:
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {[
+                { label: 'Off (Permanent)', val: 0 },
+                { label: '10 Seconds 🔥', val: 10 },
+                { label: '1 Minute 🔥', val: 60 },
+                { label: '1 Hour 🔥', val: 3600 },
+                { label: '24 Hours 🔥', val: 86400 }
+              ].map(opt => (
+                <div 
+                  key={opt.val}
+                  onClick={() => {
+                    setSelfDestructTimer(opt.val);
+                    setShowBurnTimerModal(false);
+                  }}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    backgroundColor: selfDestructTimer === opt.val ? 'rgba(249, 115, 22, 0.2)' : 'rgba(255,255,255,0.03)',
+                    border: selfDestructTimer === opt.val ? '1px solid #f97316' : '1px solid #1f2937',
+                    color: selfDestructTimer === opt.val ? '#f97316' : '#e2e8f0',
+                    fontSize: '14px',
+                    fontWeight: selfDestructTimer === opt.val ? '700' : '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span>{opt.label}</span>
+                  {selfDestructTimer === opt.val && <Check size={16} color="#f97316" />}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
