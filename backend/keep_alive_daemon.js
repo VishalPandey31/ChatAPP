@@ -1,6 +1,6 @@
 import https from 'https';
 
-const URL = 'https://chatapp-v6ug.onrender.com/api/health';
+const URL = 'https://chatapp-cwdk.onrender.com/api/health';
 const INTERVAL_MS = 4 * 60 * 1000; // 4 minutes
 
 function ping() {
