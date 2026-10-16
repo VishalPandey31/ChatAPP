@@ -74,7 +74,7 @@ export const loginAdmin = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        const user = await User.findOne({ email, role: 'ADMIN' });
+        const user = await User.findOne({ email, role: 'ADMIN' }).select('+password');
         if (!user || user.accountStatus === 'REMOVED') {
             return res.status(401).json({ message: 'Invalid credentials or account revoked.' });
         }
@@ -104,7 +104,7 @@ export const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        const user = await User.findOne({ email, role: 'USER' });
+        const user = await User.findOne({ email, role: 'USER' }).select('+password');
         if (!user) {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
@@ -166,23 +166,30 @@ export const uploadPublicKey = async (req, res) => {
     try {
         const { keyId, publicKey } = req.body;
 
-        // Legacy fallback
-        if (!keyId && publicKey) {
-            await User.findByIdAndUpdate(req.user._id, { publicKey });
-            return res.status(200).json({ message: 'Legacy public key registered successfully.' });
-        }
-
-        if (!keyId || !publicKey || typeof publicKey !== 'string' || publicKey.length > 2048) {
+        if (!publicKey || typeof publicKey !== 'string' || publicKey.length > 2048) {
             return res.status(400).json({ message: 'Invalid public key format.' });
         }
 
-        // Push new key to history array, AND update legacy slot for backward compatibility
-        await User.findByIdAndUpdate(req.user._id, {
-            publicKey, // keep legacy client working temporarily
-            $push: { publicKeys: { keyId, publicKey } }
-        });
+        const effectiveKeyId = keyId || 'legacy';
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ message: 'User not found.' });
 
-        res.status(200).json({ message: 'Public key registered successfully with KeyId.' });
+        // Update active publicKey slot
+        user.publicKey = publicKey;
+
+        // Deduplicate publicKeys array to eliminate redundant duplicates
+        let existingKeys = (user.publicKeys || []).filter(k => k && k.keyId !== effectiveKeyId);
+        existingKeys.push({ keyId: effectiveKeyId, publicKey, createdAt: new Date() });
+
+        // Keep at most 20 recent unique keys
+        if (existingKeys.length > 20) {
+            existingKeys = existingKeys.slice(-20);
+        }
+
+        user.publicKeys = existingKeys;
+        await user.save();
+
+        res.status(200).json({ message: 'Public key registered successfully.', keyId: effectiveKeyId });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
@@ -196,9 +203,17 @@ export const getPublicKey = async (req, res) => {
         const user = await User.findById(userId).select('publicKey publicKeys name');
         if (!user) return res.status(404).json({ message: 'User not found.' });
 
+        // Deduplicate publicKeys array by keyId so client receives clean unique keys
+        const uniqueKeysMap = new Map();
+        for (const k of (user.publicKeys || [])) {
+            if (k && k.keyId && k.publicKey) {
+                uniqueKeysMap.set(k.keyId, { keyId: k.keyId, publicKey: k.publicKey, createdAt: k.createdAt });
+            }
+        }
+
         res.status(200).json({
-            publicKey: user.publicKey, // legacy
-            publicKeys: user.publicKeys || [] // new key ring history
+            publicKey: user.publicKey, // active/latest public key
+            publicKeys: Array.from(uniqueKeysMap.values())
         });
     } catch (error) {
         console.error(error);
@@ -214,8 +229,8 @@ export const uploadEncryptedKeyRing = async (req, res) => {
             return res.status(400).json({ message: 'Missing encrypted key ring data.' });
         }
         await User.findByIdAndUpdate(req.user._id, {
-            encryptedKeyRing,
-            encryptedKeyRingIv
+            encryptedKeyRing: typeof encryptedKeyRing === 'object' ? (encryptedKeyRing.ciphertext || JSON.stringify(encryptedKeyRing)) : String(encryptedKeyRing),
+            encryptedKeyRingIv: typeof encryptedKeyRingIv === 'object' ? (encryptedKeyRingIv.iv || JSON.stringify(encryptedKeyRingIv)) : String(encryptedKeyRingIv)
         });
         res.status(200).json({ message: 'Encrypted Key Ring backup successful.' });
     } catch (error) {

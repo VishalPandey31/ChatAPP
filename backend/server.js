@@ -45,8 +45,8 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ limit: '20mb', extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
 
 // --------------------------------------------------
@@ -80,7 +80,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 const io = new Server(server, {
-  maxHttpBufferSize: 2e7, // 20 MB for base64 image uploads
+  maxHttpBufferSize: 5e7, // 50 MB for media (images and encrypted videos)
   cors: {
     origin: [
       process.env.FRONTEND_URL,

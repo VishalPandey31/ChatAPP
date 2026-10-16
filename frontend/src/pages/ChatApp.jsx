@@ -5,14 +5,15 @@ import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useProjectStore } from '../store/projectStore';
 import { apiFetch } from '../utils/api';
-import { Loader2, Plus, Users, Send as SendIcon, Settings, Check, LogOut, CheckCheck, MapPin, Briefcase, Star, Search, Shield, Info, Reply, X, User as UserIcon, Building2, Pencil, Trash2, Camera, Smile, Image as ImageIcon, Clock, Copy, MessageSquare, MoreVertical, BarChart3, RefreshCcw, UserCircle, ChevronDown } from 'lucide-react';
+import { Loader2, Plus, Users, Send as SendIcon, Settings, Check, LogOut, CheckCheck, MapPin, Briefcase, Star, Search, Shield, Info, Reply, X, User as UserIcon, Building2, Pencil, Trash2, Camera, Smile, Image as ImageIcon, Video as VideoIcon, Clock, Copy, MessageSquare, MoreVertical, BarChart3, RefreshCcw, UserCircle, ChevronDown, Download } from 'lucide-react';
 import TeamModal from '../components/TeamModal';
 import ActiveMembersModal from '../components/ActiveMembersModal';
-import EmojiPicker from 'emoji-picker-react';
 import { useVoiceCallStore } from '../store/voiceCallStore';
 import IncomingCallModal from '../components/voice/IncomingCallModal';
 import ActiveCallOverlay from '../components/voice/ActiveCallOverlay';
 import VoiceCallButton from '../components/voice/VoiceCallButton';
+import VideoCallButton from '../components/voice/VideoCallButton';
+import ImageZoomModal, { downloadMediaFile } from '../components/ImageZoomModal';
 import CallRecordBubble from '../components/voice/CallRecordBubble';
 
 const playNotificationSound = () => {
@@ -87,7 +88,10 @@ const ChatApp = () => {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageLightbox, setShowImageLightbox] = useState(null);
+  const [showVideoLightbox, setShowVideoLightbox] = useState(null);
   const [pendingImage, setPendingImage] = useState(null);
+  const [pendingVideo, setPendingVideo] = useState(null);
+  const [videoInfo, setVideoInfo] = useState(null);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
@@ -104,6 +108,7 @@ const ChatApp = () => {
   const [showScrollArrow, setShowScrollArrow] = useState(false);
   const [unreadScrollCount, setUnreadScrollCount] = useState(0);
   const fileInputRef = useRef(null);
+  const videoInputRef = useRef(null);
   const pressTimer = useRef(null);
   const isTypingRef = useRef(false);
   const typingTimeoutRef = useRef(null);
@@ -471,6 +476,36 @@ const ChatApp = () => {
       setInputText(val);
   };
 
+  const handleStartEdit = (msg) => {
+    if (!msg || msg.deleted || msg.messageType !== 'TEXT') return;
+    setReplyingTo(null);
+    setPendingImage(null);
+    setEditingMessage(msg);
+    setInputText(msg.content);
+    if (textareaRef.current) {
+      textareaRef.current.value = msg.content;
+      textareaRef.current.style.height = 'auto';
+      setTimeout(() => {
+        if (textareaRef.current) {
+          const scrollH = textareaRef.current.scrollHeight;
+          textareaRef.current.style.height = `${Math.min(scrollH, isMobile ? 120 : 160)}px`;
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(msg.content.length, msg.content.length);
+        }
+      }, 40);
+    }
+    setActiveMenuMsgId(null);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null);
+    setInputText('');
+    if (textareaRef.current) {
+      textareaRef.current.value = '';
+      textareaRef.current.style.height = 'auto';
+    }
+  };
+
   const handleTyping = (e) => {
       const val = e.target.value;
       setInputText(val);
@@ -502,8 +537,8 @@ const ChatApp = () => {
     const currentMessage = (textareaRef.current?.value || inputText || '').trim();
     const activeProject = projectId || (projects && projects[0] ? projects[0]._id : null);
     
-    // Check if empty (no image and no text)
-    if (!currentMessage && !pendingImage) return;
+    // Check if empty (no image, no video, and no text)
+    if (!currentMessage && !pendingImage && !pendingVideo) return;
 
     if (!activeProject) {
         alert("Please select or open a project chat to send messages.");
@@ -523,16 +558,24 @@ const ChatApp = () => {
             textareaRef.current.style.height = 'auto'; 
         }
         if (fileInputRef.current) fileInputRef.current.value = '';
+        if (videoInputRef.current) videoInputRef.current.value = '';
         
         if (pendingImage) {
             sendProjectMessage(activeProject, pendingImage, replyingTo?.id, 'IMAGE').catch(err => console.error(err));
             setPendingImage(null);
         }
+
+        if (pendingVideo) {
+            sendProjectMessage(activeProject, pendingVideo, replyingTo?.id, 'VIDEO').catch(err => console.error(err));
+            setPendingVideo(null);
+            setVideoInfo(null);
+        }
         
         if (currentMessage) {
-            if (editingMessage && !pendingImage) {
-                await useChatStore.getState().editProjectMessage(editingMessage._id, activeProject, currentMessage);
+            if (editingMessage && !pendingImage && !pendingVideo) {
+                const targetMsgId = editingMessage._id;
                 setEditingMessage(null);
+                await useChatStore.getState().editProjectMessage(targetMsgId, activeProject, currentMessage);
             } else {
                 // Async send in background without blocking UI
                 sendProjectMessage(activeProject, currentMessage, replyingTo?.id, 'TEXT').catch(err => console.error(err));
@@ -607,6 +650,8 @@ const ChatApp = () => {
            
            // Aggressive optimization: 0.6 quality JPEG
            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+           setPendingVideo(null);
+           setVideoInfo(null);
            setPendingImage(compressedDataUrl);
            updateSendButtonStyles(textareaRef.current?.value || '', compressedDataUrl);
        };
@@ -616,6 +661,31 @@ const ChatApp = () => {
     e.target.value = ''; 
   };
   
+  const handleVideoSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    // 25MB safety cap for encrypted video
+    if (file.size > 25 * 1024 * 1024) {
+      alert('Video file is too large! Maximum 25MB allowed for encrypted transfer.');
+      e.target.value = '';
+      return;
+    }
+
+    setPendingImage(null);
+    setVideoInfo({ name: file.name, size: (file.size / (1024 * 1024)).toFixed(1) + ' MB' });
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setPendingVideo(event.target.result);
+      updateSendButtonStyles(textareaRef.current?.value || '', event.target.result);
+    };
+    reader.onerror = () => {
+      alert('Could not read video file. Please try another video.');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   const handleClearChat = () => {
     if (window.confirm("Are you sure you want to completely clear this chat for everyone?")) {
         clearProjectChat(projectId);
@@ -693,7 +763,8 @@ const ChatApp = () => {
             </div>
           </div>
           {isMobile ? (
-            <div className="mobile-header-menu" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="mobile-header-menu" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <VideoCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <VoiceCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', color: '#94A3B8' }} aria-label="Menu" aria-expanded={showMobileMenu} onClick={() => setShowMobileMenu(!showMobileMenu)}>
                 <MoreVertical size={20} />
@@ -747,7 +818,8 @@ const ChatApp = () => {
               )}
             </div>
           ) : (
-            <div className="desktop-header-menu" style={{ display: 'flex', gap: '8px', color: '#94A3B8', alignItems: 'center' }}>
+            <div className="desktop-header-menu" style={{ display: 'flex', gap: '6px', color: '#94A3B8', alignItems: 'center' }}>
+              <VideoCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <VoiceCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <span onClick={() => { setShowSearchInput(!showSearchInput); if (!showSearchInput) setSearchQuery(''); }} className="icon-btn" title="Search" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: showSearchInput ? '#2563EB' : '#94A3B8', backgroundColor: showSearchInput ? '#1E293B' : 'transparent' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1E293B'} onMouseLeave={e => e.currentTarget.style.backgroundColor = showSearchInput ? '#1E293B' : 'transparent'}>
                 <Search size={18} />
@@ -1048,7 +1120,7 @@ const ChatApp = () => {
                             >
                                 <div title="React" onClick={() => setReactionMsgId(reactionMsgId === msg._id ? null : msg._id)} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Smile size={14} /></div>
                                 {!msg.deleted && <div title="Reply" onClick={() => setReplyingTo({ id: msg._id || msg.id, senderId: typeof msg.sender === 'object' ? (msg.sender?._id || msg.sender?.id) : msg.sender, text: msg.content || msg.text, messageType: msg.messageType, deleted: msg.deleted })} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Reply size={14} /></div>}
-                                {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); if(textareaRef.current) { textareaRef.current.value = msg.content; textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); } }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Pencil size={14} /></div>}
+                                {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => handleStartEdit(msg)} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#F8FAFC'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Pencil size={14} /></div>}
                                 {isMine && !msg.deleted && <div title="Delete" onClick={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: msg._id, senderId: user._id, projectId }); }} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#111827', border: '1px solid #243044', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', color: '#94A3B8' }} onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.backgroundColor = '#1E293B'; }} onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.backgroundColor = '#111827'; }}><Trash2 size={14} /></div>}
                             </div>
                             )}
@@ -1126,7 +1198,7 @@ const ChatApp = () => {
                                       
                                       {!msg.deleted && msg.messageType === 'TEXT' && <div title="Copy" onClick={() => { navigator.clipboard.writeText(msg.content); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15.5px', cursor: 'pointer', borderRadius: '6px' }} onMouseEnter={e=>e.currentTarget.style.backgroundColor='#1E293B'} onMouseLeave={e=>e.currentTarget.style.backgroundColor='transparent'}><Copy size={20} /> Copy Text</div>}
                                       {!msg.deleted && <div title="Reply" onClick={() => { setReplyingTo({ id: msg._id || msg.id, senderId: typeof msg.sender === 'object' ? (msg.sender?._id || msg.sender?.id) : msg.sender, text: msg.content || msg.text, messageType: msg.messageType, deleted: msg.deleted }); setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15.5px', cursor: 'pointer', borderRadius: '6px' }} onMouseEnter={e=>e.currentTarget.style.backgroundColor='#1E293B'} onMouseLeave={e=>e.currentTarget.style.backgroundColor='transparent'}><Reply size={20} /> Reply</div>}
-                                      {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => { setEditingMessage(msg); if(textareaRef.current) { textareaRef.current.value = msg.content; textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); } setActiveMenuMsgId(null); }} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15.5px', cursor: 'pointer', borderRadius: '6px' }}><Pencil size={20} /> Edit</div>}
+                                      {isMine && !msg.deleted && msg.messageType === 'TEXT' && <div title="Edit" onClick={() => handleStartEdit(msg)} style={{ color: '#94A3B8', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15.5px', cursor: 'pointer', borderRadius: '6px' }}><Pencil size={20} /> Edit</div>}
                                       
                                       <div style={{ height: '1px', backgroundColor: isMobile ? '#1E293B' : '#243044', margin: '4px 0' }} />
                                       <div title="Delete for me" onClick={() => { setActiveMenuMsgId(null); useChatStore.getState().removeMessageFromUI(msg._id); }} style={{ color: '#EF4444', padding: '12px 10px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15.5px', cursor: 'pointer', borderRadius: '6px' }}><Trash2 size={20} /> Delete for me</div>
@@ -1180,7 +1252,8 @@ const ChatApp = () => {
                                 </div>
                                 <div style={{ color: isMine ? '#E0F2FE' : '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                   {msg.replyTo.messageType === 'IMAGE' && <ImageIcon size={12} />}
-                                  {msg.replyTo.messageType === 'IMAGE' ? 'Photo' : msg.replyTo.text}
+                                  {msg.replyTo.messageType === 'VIDEO' && <VideoIcon size={12} />}
+                                  {msg.replyTo.messageType === 'IMAGE' ? 'Photo' : msg.replyTo.messageType === 'VIDEO' ? 'Video' : msg.replyTo.text}
                                 </div>
                               </div>
                               );
@@ -1191,7 +1264,40 @@ const ChatApp = () => {
                                     <Trash2 size={14} opacity={0.6}/> This message was deleted
                                 </div>
                             ) : msg.messageType === 'IMAGE' ? (
-                                <img src={msg.content} alt="Shared UI" draggable={false} style={{ maxWidth: '280px', maxHeight: '280px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => setShowImageLightbox(msg.content)} />
+                                <div style={{ position: 'relative', display: 'inline-block' }}>
+                                    <img src={msg.content} alt="Shared UI" draggable={false} style={{ maxWidth: '280px', maxHeight: '280px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => setShowImageLightbox(msg.content)} />
+                                    <button 
+                                        type="button" 
+                                        onClick={(e) => { e.stopPropagation(); downloadMediaFile(msg.content, 'PHOTO'); }}
+                                        title="Save to Gallery"
+                                        style={{ position: 'absolute', bottom: '8px', right: '8px', backgroundColor: 'rgba(15, 23, 42, 0.85)', color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backdropFilter: 'blur(4px)', transition: 'all 0.15s' }}
+                                    >
+                                        <Download size={15} />
+                                    </button>
+                                </div>
+                            ) : msg.messageType === 'VIDEO' ? (
+                                <div style={{ position: 'relative', maxWidth: '320px', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#0B1120', border: '1px solid #243044' }}>
+                                    <video 
+                                        src={msg.content} 
+                                        controls 
+                                        playsInline
+                                        preload="metadata"
+                                        style={{ width: '100%', maxHeight: '240px', display: 'block', borderRadius: '8px 8px 0 0', outline: 'none', backgroundColor: '#000' }} 
+                                    />
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', fontSize: '11px', color: '#94A3B8', backgroundColor: '#111827' }}>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <Shield size={12} color="#10B981" /> Encrypted Video
+                                        </span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <span style={{ cursor: 'pointer', color: '#10B981', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '500' }} onClick={() => downloadMediaFile(msg.content, 'VIDEO')} title="Save to Gallery">
+                                                <Download size={13} /> Save
+                                            </span>
+                                            <span style={{ cursor: 'pointer', color: '#60A5FA', fontWeight: '500' }} onClick={() => setShowVideoLightbox(msg.content)}>
+                                                Fullscreen
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
                             ) : (
                                 renderMessageContent(msg.content)
                             )}
@@ -1261,7 +1367,7 @@ const ChatApp = () => {
                       {editingMessage.content}
                     </span>
                   </div>
-                  <X size={18} onClick={() => { setEditingMessage(null); if (textareaRef.current) textareaRef.current.value = ''; updateSendButtonStyles(''); }} style={{ color: '#94A3B8', cursor: 'pointer' }} />
+                  <X size={18} onClick={handleCancelEdit} style={{ color: '#94A3B8', cursor: 'pointer' }} />
                 </div>
               ) : replyingTo ? (() => {
                   const replyPreviewSenderId = typeof replyingTo.senderId === 'object' ? replyingTo.senderId?._id : replyingTo.senderId;
@@ -1281,7 +1387,8 @@ const ChatApp = () => {
                     </span>
                     <span style={{ fontSize: '13px', color: '#94A3B8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', maxHeight: '40px', overflow: 'hidden', flex: 1, minWidth: 0, fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {replyingTo.messageType === 'IMAGE' && <ImageIcon size={12} />}
-                      {replyingTo.messageType === 'IMAGE' ? 'Photo' : replyingTo.text}
+                      {replyingTo.messageType === 'VIDEO' && <VideoIcon size={12} />}
+                      {replyingTo.messageType === 'IMAGE' ? 'Photo' : replyingTo.messageType === 'VIDEO' ? 'Video' : replyingTo.text}
                     </span>
                   </div>
                   <X size={18} onClick={() => setReplyingTo(null)} style={{ color: '#94A3B8', cursor: 'pointer', flexShrink: 0, paddingLeft: '8px' }} />
@@ -1299,6 +1406,24 @@ const ChatApp = () => {
                           <img src={pendingImage} style={{ height: '80px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #243044' }} alt="Preview" />
                       </div>
                       <X size={18} onClick={() => { setPendingImage(null); updateSendButtonStyles(''); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ color: '#94A3B8', cursor: 'pointer', marginTop: '4px' }} />
+                  </div>
+              )}
+
+              {/* Video Preview State */}
+              {pendingVideo && (
+                  <div className="animate-fade-in" style={{ backgroundColor: '#111827', padding: '12px 20px', borderRadius: replyingTo || editingMessage ? '0' : '16px 16px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderTop: '1px solid #243044', borderRight: '1px solid #243044', borderLeft: '1px solid #243044' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <video src={pendingVideo} style={{ height: '70px', width: '100px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #243044', backgroundColor: '#000' }} />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                              <span style={{ fontSize: '13px', fontWeight: '600', color: '#10B981', fontFamily: '"Inter", sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <VideoIcon size={14} /> Video Attachment
+                              </span>
+                              <span style={{ fontSize: '12px', color: '#94A3B8', fontFamily: '"Inter", sans-serif' }}>
+                                  {videoInfo?.name || 'Selected video'} ({videoInfo?.size || 'Encrypted'})
+                              </span>
+                          </div>
+                      </div>
+                      <X size={18} onClick={() => { setPendingVideo(null); setVideoInfo(null); updateSendButtonStyles(''); if (videoInputRef.current) videoInputRef.current.value = ''; }} style={{ color: '#94A3B8', cursor: 'pointer', marginTop: '4px' }} />
                   </div>
               )}
 
@@ -1334,13 +1459,17 @@ const ChatApp = () => {
                           </div>
                       </div>
                   )}
-                  <div style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo || editingMessage || pendingImage ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
+                  <div style={{ backgroundColor: '#111827', display: 'flex', gap: '16px', alignItems: 'center', padding: '12px 16px', borderRadius: replyingTo || editingMessage || pendingImage || pendingVideo ? '0 0 16px 16px' : '100px', border: '1px solid #243044', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', transition: 'all 0.2s' }}>
                     <span className="icon-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)} title="Add Emoji" style={{ color: showEmojiPicker ? '#2563EB' : '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = showEmojiPicker ? '#2563EB' : '#64748B'; }}>
                       <Smile size={20} />
                     </span>
                     <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageSelect} style={{ display: 'none' }} />
-                    <span className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Add Media" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
+                    <span className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Send Image" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
                       <ImageIcon size={20} />
+                    </span>
+                    <input type="file" accept="video/mp4,video/webm,video/ogg,video/quicktime,video/*" ref={videoInputRef} onChange={handleVideoSelect} style={{ display: 'none' }} />
+                    <span className="icon-btn" onClick={() => videoInputRef.current?.click()} title="Send Video" style={{ color: '#64748B', cursor: 'pointer', padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1E293B'; e.currentTarget.style.color = '#94A3B8'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; }}>
+                      <VideoIcon size={20} />
                     </span>
                     <textarea 
                   ref={textareaRef}
@@ -1352,8 +1481,13 @@ const ChatApp = () => {
                   onInput={(e) => {
                       setInputText(e.target.value);
                   }}
-                  placeholder="Message the collaborative space..." 
+                  placeholder={editingMessage ? "Edit message..." : "Message the collaborative space..."} 
                   onKeyDown={(e) => {
+                     if (e.key === 'Escape' && editingMessage) {
+                         e.preventDefault();
+                         handleCancelEdit();
+                         return;
+                     }
                      if (e.key === 'Enter' && !e.shiftKey) {
                          e.preventDefault();
                          handleSend(e);
@@ -1376,11 +1510,14 @@ const ChatApp = () => {
                 <button 
                   id="chat-send-btn" 
                   type="button" 
-                  disabled={(!inputText.trim() && !pendingImage) || isSending}
+                  disabled={(!inputText.trim() && !pendingImage && !pendingVideo) || isSending}
                   onClick={handleSend} 
+                  title={editingMessage ? "Save edit (Enter)" : "Send (Enter)"}
                   style={{ 
-                    backgroundColor: (inputText.trim() || pendingImage) ? '#2563EB' : '#1E293B', 
-                    color: (inputText.trim() || pendingImage) ? '#FFFFFF' : '#64748B', 
+                    backgroundColor: editingMessage 
+                      ? (inputText.trim() ? '#10B981' : '#1E293B') 
+                      : ((inputText.trim() || pendingImage || pendingVideo) ? '#2563EB' : '#1E293B'), 
+                    color: (inputText.trim() || pendingImage || pendingVideo) ? '#FFFFFF' : '#64748B', 
                     border: 'none', 
                     width: '40px', 
                     height: '40px', 
@@ -1388,12 +1525,18 @@ const ChatApp = () => {
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    cursor: (inputText.trim() || pendingImage) && !isSending ? 'pointer' : 'default',
+                    cursor: (inputText.trim() || pendingImage || pendingVideo) && !isSending ? 'pointer' : 'default',
                     transition: 'all 0.15s ease',
-                    boxShadow: (inputText.trim() || pendingImage) ? '0 2px 10px rgba(37, 99, 235, 0.4)' : 'none'
+                    boxShadow: editingMessage 
+                      ? (inputText.trim() ? '0 2px 10px rgba(16, 185, 129, 0.4)' : 'none')
+                      : ((inputText.trim() || pendingImage || pendingVideo) ? '0 2px 10px rgba(37, 99, 235, 0.4)' : 'none')
                   }}
                 >
-                  <SendIcon size={18} style={{ marginLeft: '2px' }} />
+                  {editingMessage ? (
+                    <Check size={20} strokeWidth={2.5} />
+                  ) : (
+                    <SendIcon size={18} style={{ marginLeft: '2px' }} />
+                  )}
                 </button>
               </div>
               </div>
@@ -1406,11 +1549,40 @@ const ChatApp = () => {
       {/* ACTIVITY MODAL OVERLAY */}
       {showActivityModal && <ActiveMembersModal onClose={() => setShowActivityModal(false)} project={currentProject} />}
       
-      {/* IMAGE LIGHTBOX OVERLAY */}
+      {/* IMAGE ZOOM LIGHTBOX WITH PINCH/ZOOM AND GALLERY SAVE */}
       {showImageLightbox && (
-          <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.9)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <X size={32} style={{ position: 'absolute', top: '24px', right: '24px', color: 'white', cursor: 'pointer' }} onClick={() => setShowImageLightbox(null)} />
-              <img src={showImageLightbox} style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain' }} alt="Lightbox" />
+          <ImageZoomModal 
+              src={showImageLightbox} 
+              onClose={() => setShowImageLightbox(null)} 
+          />
+      )}
+
+      {/* VIDEO LIGHTBOX OVERLAY */}
+      {showVideoLightbox && (
+          <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.94)', zIndex: 99999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
+              <div style={{ position: 'absolute', top: '20px', right: '24px', display: 'flex', alignItems: 'center', gap: '12px', zIndex: 100000 }}>
+                  <button 
+                      onClick={() => downloadMediaFile(showVideoLightbox, 'VIDEO')}
+                      title="Save to Gallery / Downloads"
+                      style={{ background: '#10B981', border: 'none', color: '#FFFFFF', padding: '6px 16px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', boxShadow: '0 2px 10px rgba(16, 185, 129, 0.4)' }}
+                  >
+                      <Download size={16} /> Save Video
+                  </button>
+                  <button 
+                      onClick={() => setShowVideoLightbox(null)}
+                      title="Close (Esc)"
+                      style={{ background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#EF4444', width: '38px', height: '38px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                  >
+                      <X size={20} />
+                  </button>
+              </div>
+              <video 
+                  src={showVideoLightbox} 
+                  controls 
+                  autoPlay 
+                  playsInline
+                  style={{ maxWidth: '92vw', maxHeight: '82vh', borderRadius: '12px', boxShadow: '0 8px 30px rgba(0,0,0,0.8)' }} 
+              />
           </div>
       )}
       {/* Mobile Bottom Action Sheet Portal */}
@@ -1457,7 +1629,7 @@ const ChatApp = () => {
 
                          <Item icon={Smile} label="More Reactions" action={() => setReactionMsgId(reactionMsgId === activeMsg._id ? null : activeMsg._id)} />
                          {!activeMsg.deleted && <Item icon={Reply} label="Reply" action={() => setReplyingTo({ id: activeMsg._id || activeMsg.id, senderId: typeof activeMsg.sender === 'object' ? (activeMsg.sender?._id || activeMsg.sender?.id) : activeMsg.sender, text: activeMsg.content || activeMsg.text, messageType: activeMsg.messageType, deleted: activeMsg.deleted })} />}
-                         {isMine && !activeMsg.deleted && activeMsg.messageType === 'TEXT' && <Item icon={Pencil} label="Edit" action={() => { setEditingMessage(activeMsg); if(textareaRef.current) { textareaRef.current.value = activeMsg.content; textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); } }} />}
+                         {isMine && !activeMsg.deleted && activeMsg.messageType === 'TEXT' && <Item icon={Pencil} label="Edit" action={() => handleStartEdit(activeMsg)} />}
                          {!activeMsg.deleted && <Item icon={Trash2} label="Delete for me" action={() => { deleteMessageLocally(activeMsg._id); }} />}
                          {isMine && !activeMsg.deleted && <Item icon={Trash2} color="#EF4444" label="Delete for everyone" action={() => { if(window.confirm('Delete message for everyone?')) socket.emit("delete_project_message", { messageId: activeMsg._id, senderId: user._id, projectId }); }} />}
                        </>

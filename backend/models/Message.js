@@ -43,7 +43,7 @@ const messageSchema = new mongoose.Schema({
     },
     messageType: {
         type: String,
-        enum: ['TEXT', 'IMAGE', 'VOICE', 'CALL_RECORD'],
+        enum: ['TEXT', 'IMAGE', 'VIDEO', 'VOICE', 'CALL_RECORD'],
         default: 'TEXT'
     },
     // Populated only when messageType === 'CALL_RECORD'

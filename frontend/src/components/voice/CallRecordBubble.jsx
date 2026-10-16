@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Phone, PhoneMissed, PhoneOff } from 'lucide-react';
 import { useVoiceCallStore } from '../../store/voiceCallStore';
 import { useAuthStore } from '../../store/authStore';
+import CallConfirmModal from './CallConfirmModal';
 
 const formatTime = (dateStr) => {
     if (!dateStr) return '';
@@ -13,6 +14,7 @@ const CallRecordBubble = ({ message }) => {
     const { callMeta, createdAt, sender } = message;
     const { user } = useAuthStore();
     const { callState, startCall } = useVoiceCallStore();
+    const [confirmStep, setConfirmStep] = useState(0);
 
     if (!callMeta) return null;
 
@@ -46,8 +48,23 @@ const CallRecordBubble = ({ message }) => {
             return;
         }
         if (otherUserId && otherUserId !== 'undefined') {
+            setConfirmStep(1);
+        }
+    };
+
+    const handleNextStep = () => {
+        setConfirmStep(2);
+    };
+
+    const handleFinalConfirm = () => {
+        setConfirmStep(0);
+        if (otherUserId && otherUserId !== 'undefined') {
             startCall(otherUserId, otherUserName);
         }
+    };
+
+    const handleCancel = () => {
+        setConfirmStep(0);
     };
 
     let iconEl, labelEl, subLabelEl;
@@ -135,6 +152,15 @@ const CallRecordBubble = ({ message }) => {
                     </div>
                 </div>
             </div>
+
+            <CallConfirmModal 
+                isOpen={confirmStep > 0}
+                step={confirmStep}
+                receiverName={otherUserName}
+                onNext={handleNextStep}
+                onConfirm={handleFinalConfirm}
+                onCancel={handleCancel}
+            />
         </div>
     );
 };

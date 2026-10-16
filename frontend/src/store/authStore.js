@@ -52,23 +52,30 @@ export const useAuthStore = create((set, get) => ({
                     console.warn('Failed to parse E2EE key ring', e);
                 }
 
-                // Temporary backward compatibility for existing unversioned keys
+                // Comprehensive backward compatibility for existing unversioned keys
                 const legacyPrivStr = `e2ee_private_key_${currentUser._id}`;
                 const legacyPubStr = `e2ee_public_key_${currentUser._id}`;
-                let legacyPrivJwk = localStorage.getItem(legacyPrivStr);
-                let legacyPubJwk = localStorage.getItem(legacyPubStr);
+                let legacyPrivJwk = localStorage.getItem(legacyPrivStr) || localStorage.getItem('e2ee_private_key_jwk');
+                let legacyPubJwk = localStorage.getItem(legacyPubStr) || localStorage.getItem('e2ee_public_key_jwk');
 
                 if (!storedKeyRing) {
                     storedKeyRing = { currentKeyId: null, keys: {} };
                 }
+                if (!storedKeyRing.keys) {
+                    storedKeyRing.keys = {};
+                }
 
-                // If no current key exists, BUT legacy exists, migrate it into ring as "legacy"
-                if (!storedKeyRing.currentKeyId && legacyPrivJwk && legacyPubJwk) {
-                    storedKeyRing.currentKeyId = 'legacy';
-                    storedKeyRing.keys['legacy'] = {
-                        privateKeyJwk: legacyPrivJwk,
-                        publicKeyJwk: legacyPubJwk
-                    };
+                // Always ensure historical legacy keys are preserved in the ring
+                if (legacyPrivJwk && legacyPubJwk) {
+                    if (!storedKeyRing.keys['legacy']) {
+                        storedKeyRing.keys['legacy'] = {
+                            privateKeyJwk: legacyPrivJwk,
+                            publicKeyJwk: legacyPubJwk
+                        };
+                    }
+                    if (!storedKeyRing.currentKeyId) {
+                        storedKeyRing.currentKeyId = 'legacy';
+                    }
                     localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
                 }
 
@@ -78,7 +85,7 @@ export const useAuthStore = create((set, get) => ({
                     const res = await apiFetch('/api/auth/keys/backup');
                     if (res.ok) {
                         const backupData = await res.json();
-                        if (backupData.encryptedKeyRing) {
+                        if (backupData.encryptedKeyRing && typeof backupData.encryptedKeyRing === 'string' && backupData.encryptedKeyRing !== '[object Object]') {
                             hasServerBackup = true;
                             if (window.__tempLoginPassword && window.__tempLoginEmail) {
                                 const deriveKey = await deriveBackupKey(window.__tempLoginPassword, window.__tempLoginEmail);
@@ -108,6 +115,13 @@ export const useAuthStore = create((set, get) => ({
                     console.warn('[E2EE] Failed checking/restoring backup from cloud', e);
                 }
 
+                // If currentKeyId is missing but we have keys, adopt the first available key
+                if (!storedKeyRing.currentKeyId && Object.keys(storedKeyRing.keys).length > 0) {
+                    const availableIds = Object.keys(storedKeyRing.keys);
+                    storedKeyRing.currentKeyId = availableIds[availableIds.length - 1];
+                    localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
+                }
+
                 if (storedKeyRing.currentKeyId && storedKeyRing.keys[storedKeyRing.currentKeyId]) {
                     const activePair = storedKeyRing.keys[storedKeyRing.currentKeyId];
                     const privateKey = await importPrivateKey(activePair.privateKeyJwk);
@@ -118,7 +132,7 @@ export const useAuthStore = create((set, get) => ({
                         myKeyRing: storedKeyRing
                     });
 
-                    // Non-blocking background backup update in case it was a new device restoring legacy
+                    // Non-blocking background backup update if credentials available
                     if (window.__tempLoginPassword && window.__tempLoginEmail) {
                         get()._backupEncryptedKeyRing(storedKeyRing, window.__tempLoginPassword, window.__tempLoginEmail);
                     }
@@ -126,8 +140,8 @@ export const useAuthStore = create((set, get) => ({
                     return { privateKey, publicKeyJwk: activePair.publicKeyJwk, keyId: storedKeyRing.currentKeyId };
                 }
 
-                if (hasServerBackup) {
-                    // We must NOT generate a new key because a cloud backup exists, but we can't unlock it!
+                if (hasServerBackup && Object.keys(storedKeyRing.keys).length === 0) {
+                    // Only force logout if device has absolutely no keys and server has a backup requiring password
                     console.warn('[E2EE] Critical: Server has backup but no password available to unlock! Forcing Logout.');
                     get().logout();
                     throw new Error('E2EE_UNLOCK_REQUIRED');
@@ -159,7 +173,7 @@ export const useAuthStore = create((set, get) => ({
                     get()._backupEncryptedKeyRing(storedKeyRing, window.__tempLoginPassword, window.__tempLoginEmail);
                 }
 
-                initKeysPromise = null; // Clear promise so future calls re-evaluate if needed
+                initKeysPromise = null;
                 return { privateKey: keyPair.privateKey, publicKeyJwk: pubKeyJwk, keyId: newKeyId };
             } catch (err) {
                 console.error('[E2EE] Failed to initialize keys:', err);
@@ -190,16 +204,13 @@ export const useAuthStore = create((set, get) => ({
     _backupEncryptedKeyRing: async (keyRing, password, email) => {
         try {
             const deriveKey = await deriveBackupKey(password, email);
-            const ivBuffer = window.crypto.getRandomValues(new Uint8Array(12));
-            const ivBase64 = bufferToBase64(ivBuffer);
-
-            const rawCiphertext = await encryptMessage(JSON.stringify(keyRing), deriveKey, ivBuffer);
+            const encResult = await encryptMessage(JSON.stringify(keyRing), deriveKey);
 
             await apiFetch('/api/auth/keys/backup', {
                 method: 'POST',
                 body: JSON.stringify({
-                    encryptedKeyRing: rawCiphertext,
-                    encryptedKeyRingIv: ivBase64
+                    encryptedKeyRing: encResult.ciphertext,
+                    encryptedKeyRingIv: encResult.iv
                 })
             });
             console.log('[E2EE] Private Key Ring zero-knowledge backed up to cloud');

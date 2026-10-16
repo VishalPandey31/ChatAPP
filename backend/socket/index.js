@@ -377,7 +377,7 @@ export const socketHandler = (io) => {
         });
 
         // Project Message Edit
-        socket.on("edit_project_message", async (data) => {
+        socket.on("edit_project_message", async (data, callback) => {
             try {
                 const { messageId, senderId, newContent, newIv, encryptionVersion, projectId } = data;
                 const msg = await Message.findById(messageId);
@@ -392,8 +392,14 @@ export const socketHandler = (io) => {
                         .populate('sender', 'name email profilePicture')
                         .populate({ path: 'replyTo', select: 'content sender iv encryptionVersion messageType deleted', populate: { path: 'sender', select: 'name email' } });
                     io.to(projectId).emit("message_edited", populatedMsg);
+                    if (typeof callback === 'function') callback({ status: 'ok', message: populatedMsg });
+                } else {
+                    if (typeof callback === 'function') callback({ status: 'error', message: 'Message not found or not editable' });
                 }
-            } catch (err) { console.error("Edit error:", err); }
+            } catch (err) {
+                console.error("Edit error:", err);
+                if (typeof callback === 'function') callback({ status: 'error', message: err.message });
+            }
         });
 
         // Project Message Delete
@@ -483,13 +489,13 @@ export const socketHandler = (io) => {
             }
         });
 
-        // Voice Call Signaling
+        // Voice & Video Call Signaling
         socket.on("call-user", async (data) => {
-            const { callerId, receiverId, callId, callerName } = data;
+            const { callerId, receiverId, callId, callerName, callType } = data;
             const receiverSockets = userSockets.get(receiverId);
             if (receiverSockets && receiverSockets.size > 0) {
                 receiverSockets.forEach(socketId => {
-                    io.to(socketId).emit("incoming-call", { callerId, callerName, callId });
+                    io.to(socketId).emit("incoming-call", { callerId, callerName, callId, callType: callType || 'voice' });
                 });
             } else {
                 socket.emit("call-failed", { callId, reason: "User offline" });
@@ -497,11 +503,11 @@ export const socketHandler = (io) => {
         });
 
         socket.on("accept-call", (data) => {
-            const { callerId, receiverId, callId } = data;
+            const { callerId, receiverId, callId, callType } = data;
             const callerSockets = userSockets.get(callerId);
             if (callerSockets) {
                 callerSockets.forEach(socketId => {
-                    io.to(socketId).emit("call-accepted", { receiverId, callId });
+                    io.to(socketId).emit("call-accepted", { receiverId, callId, callType: callType || 'voice' });
                 });
             }
         });

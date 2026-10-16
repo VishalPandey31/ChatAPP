@@ -30,6 +30,8 @@ export const useVoiceCallStore = create((set, get) => ({
     localStream: null,
     remoteStream: null,
     isMuted: false,
+    isVideoMuted: false,
+    isFrontCamera: true,
     iceCandidateQueue: [],
 
     // Track connection time for duration calculation
@@ -51,7 +53,7 @@ export const useVoiceCallStore = create((set, get) => ({
         socket.off('voice-call:record');
 
         socket.on('incoming-call', (data) => {
-            const { callerId, callerName, callId } = data;
+            const { callerId, callerName, callId, callType } = data;
             const { callState } = get();
 
             if (callState !== 'IDLE') {
@@ -66,15 +68,16 @@ export const useVoiceCallStore = create((set, get) => ({
 
             set({
                 callState: 'RINGING',
-                activeCall: { callerId, callerName, receiverId: useAuthStore.getState().user._id, callId, isIncoming: true }
+                activeCall: { callerId, callerName, receiverId: useAuthStore.getState().user._id, callId, isIncoming: true, callType: callType || 'voice' }
             });
         });
 
         socket.on('call-accepted', async (data) => {
-            const { callId } = data;
+            const { callId, callType } = data;
             const { activeCall, callState } = get();
             if (!activeCall || activeCall.callId !== callId || callState !== 'CALLING') return;
-            set({ callState: 'CONNECTING' });
+            if (callType && !activeCall.callType) activeCall.callType = callType;
+            set({ callState: 'CONNECTING', activeCall: { ...activeCall } });
             await get()._createOffer();
         });
 
@@ -177,8 +180,8 @@ export const useVoiceCallStore = create((set, get) => ({
         });
     },
 
-    // A Starts Call
-    startCall: (receiverId, receiverName) => {
+    // A Starts Call (Voice or Video)
+    startCall: (receiverId, receiverName, callType = 'voice') => {
         const socket = useAuthStore.getState().socket;
         const currentUser = useAuthStore.getState().user;
         if (!socket || !currentUser) return;
@@ -194,16 +197,23 @@ export const useVoiceCallStore = create((set, get) => ({
                 receiverId,
                 receiverName,
                 callId,
+                callType: callType || 'voice',
                 isIncoming: false
             },
             connectedAt: null
         });
 
+        // If starting a video call, pre-warm local camera stream so caller sees self preview
+        if (callType === 'video') {
+            get()._getLocalStream('video').catch(e => console.warn("Camera preview initialization:", e));
+        }
+
         socket.emit('call-user', {
             callerId: currentUser._id,
             receiverId,
             callId,
-            callerName: currentUser.name
+            callerName: currentUser.name,
+            callType: callType || 'voice'
         });
 
         // 30-second timeout: no answer
@@ -226,9 +236,10 @@ export const useVoiceCallStore = create((set, get) => ({
 
         if (_timeoutTimer) clearTimeout(_timeoutTimer);
 
-        const stream = await get()._getLocalStream();
+        const callType = activeCall.callType || 'voice';
+        const stream = await get()._getLocalStream(callType);
         if (!stream) {
-            get().rejectCall('No microphone permission');
+            get().rejectCall('No media permission');
             return;
         }
 
@@ -236,7 +247,8 @@ export const useVoiceCallStore = create((set, get) => ({
         socket.emit('accept-call', {
             callerId: activeCall.callerId,
             receiverId: activeCall.receiverId,
-            callId: activeCall.callId
+            callId: activeCall.callId,
+            callType
         });
     },
 
@@ -294,25 +306,92 @@ export const useVoiceCallStore = create((set, get) => ({
         }
     },
 
-    _getLocalStream: async () => {
-        const { localStream } = get();
-        if (localStream) return localStream;
+    toggleVideo: () => {
+        const { localStream, isVideoMuted } = get();
+        if (localStream) {
+            const tracks = localStream.getVideoTracks();
+            if (tracks.length > 0) {
+                tracks[0].enabled = isVideoMuted;
+                set({ isVideoMuted: !isVideoMuted });
+            }
+        }
+    },
+
+    switchCamera: async () => {
+        const { localStream, peerConnection, isFrontCamera, activeCall } = get();
+        if (activeCall?.callType !== 'video') return;
+        try {
+            const targetFacing = isFrontCamera ? 'environment' : 'user';
+            const newStream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { facingMode: { exact: targetFacing } }
+            }).catch(() => navigator.mediaDevices.getUserMedia({ video: { facingMode: targetFacing } }));
+            
+            const newVideoTrack = newStream.getVideoTracks()[0];
+            if (newVideoTrack && localStream) {
+                const oldTrack = localStream.getVideoTracks()[0];
+                if (oldTrack) {
+                    localStream.removeTrack(oldTrack);
+                    oldTrack.stop();
+                }
+                localStream.addTrack(newVideoTrack);
+                if (peerConnection) {
+                    const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (sender) sender.replaceTrack(newVideoTrack);
+                }
+                set({ isFrontCamera: !isFrontCamera, localStream });
+            }
+        } catch (err) {
+            console.warn("Camera switch not supported or failed:", err);
+        }
+    },
+
+    _getLocalStream: async (specifiedType) => {
+        const { localStream, activeCall } = get();
+        const callType = specifiedType || activeCall?.callType || 'voice';
+
+        // If we already have a stream and it matches requirements (has video if video call)
+        if (localStream) {
+            const hasVideo = localStream.getVideoTracks().length > 0;
+            if (callType === 'video' && hasVideo) return localStream;
+            if (callType === 'voice' && !hasVideo) return localStream;
+            // Otherwise stop old stream to get requested media tracks
+            localStream.getTracks().forEach(t => t.stop());
+            set({ localStream: null });
+        }
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            console.error("WebRTC getUserMedia is not supported in this browser or context (requires HTTPS).");
-            alert("Microphone access is not supported. Please ensure you are on HTTPS or using a supported browser.");
+            console.error("WebRTC getUserMedia is not supported in this browser context (requires HTTPS).");
+            alert("Media access is not supported. Please ensure you are using HTTPS or a modern browser.");
             return null;
         }
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
+            const isVideoCall = callType === 'video';
+            const constraints = {
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-                video: false
-            });
+                video: isVideoCall ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } : false
+            };
+
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
             set({ localStream: stream });
             return stream;
         } catch (error) {
-            console.error("Microphone access denied:", error);
+            console.warn("Primary getUserMedia failed, attempting fallback:", error);
+            // Fallback: If video requested but rejected/unavailable, try audio only
+            if (callType === 'video') {
+                try {
+                    const audioOnly = await navigator.mediaDevices.getUserMedia({
+                        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                        video: false
+                    });
+                    set({ localStream: audioOnly });
+                    return audioOnly;
+                } catch (audioErr) {
+                    alert("Microphone and Camera permission is required for calls.");
+                    return null;
+                }
+            }
             alert("Microphone permission is required for voice calls.");
             return null;
         }
@@ -409,6 +488,7 @@ export const useVoiceCallStore = create((set, get) => ({
         set({
             callState: 'IDLE', activeCall: null, peerConnection: null,
             localStream: null, remoteStream: null, isMuted: false,
+            isVideoMuted: false, isFrontCamera: true,
             iceCandidateQueue: [], connectedAt: null, _timeoutTimer: null
         });
     },
