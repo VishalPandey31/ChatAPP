@@ -19,8 +19,6 @@ import {
 } from '../utils/cryptoUtils';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-const PRIVATE_KEY_STORAGE_KEY = 'e2ee_private_key_jwk';
-
 let initKeysPromise = null;
 
 export const useAuthStore = create((set, get) => ({
@@ -29,6 +27,94 @@ export const useAuthStore = create((set, get) => ({
     isCheckingAuth: true,
     onlineUsers: [],
     lastSeenMap: {},
+
+    // Face Biometrics & Couple Anti-Snatch State
+    faceProfile: null,
+    isSecurityLocked: false,
+    lockReason: null,
+    isFaceEnrolling: false,
+    showFaceSetupModal: false,
+    antiSnatchActive: true,
+
+    setSecurityLocked: (locked, reason = null) => set({ isSecurityLocked: locked, lockReason: reason }),
+    setShowFaceSetupModal: (show) => set({ showFaceSetupModal: show }),
+    setAntiSnatchActive: (active) => set({ antiSnatchActive: active }),
+
+    fetchFaceProfile: async () => {
+        try {
+            const res = await apiFetch('/api/auth/face/profile');
+            if (res.ok) {
+                const data = await res.json();
+                set({
+                    faceProfile: data,
+                    antiSnatchActive: data.antiSnatchProtection !== false
+                });
+                return data;
+            }
+        } catch (e) {
+            console.error('[FaceBio] Error fetching face profile:', e);
+        }
+        return null;
+    },
+
+    saveFaceProfile: async (descriptor, eyeRatioBaseline = 0.2) => {
+        try {
+            const res = await apiFetch('/api/auth/face/register', {
+                method: 'POST',
+                body: JSON.stringify({ descriptor, eyeRatioBaseline })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Failed to save face profile');
+            
+            // Update local user and faceProfile state
+            const currentProfile = {
+                isConfigured: true,
+                descriptor,
+                enrolledAt: data.enrolledAt || new Date().toISOString(),
+                eyeRatioBaseline,
+                antiSnatchProtection: true
+            };
+            set(state => ({
+                faceProfile: currentProfile,
+                antiSnatchActive: true,
+                user: state.user ? { ...state.user, faceProfile: currentProfile } : state.user
+            }));
+            return data;
+        } catch (e) {
+            console.error('[FaceBio] Error saving face profile:', e);
+            throw e;
+        }
+    },
+
+    deleteFaceProfile: async () => {
+        try {
+            const res = await apiFetch('/api/auth/face/profile', { method: 'DELETE' });
+            if (res.ok) {
+                set(state => ({
+                    faceProfile: { isConfigured: false, descriptor: [] },
+                    user: state.user ? { ...state.user, faceProfile: { isConfigured: false } } : state.user
+                }));
+            }
+        } catch (e) {
+            console.error('[FaceBio] Error deleting face profile:', e);
+        }
+    },
+
+    unlockWithPassword: async (password) => {
+        try {
+            const res = await apiFetch('/api/auth/face/unlock-password', {
+                method: 'POST',
+                body: JSON.stringify({ password })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Incorrect password');
+            set({ isSecurityLocked: false, lockReason: null });
+            return true;
+        } catch (e) {
+            console.error('[FaceBio] Password unlock failed:', e);
+            throw e;
+        }
+    },
 
     // E2EE key pair for this session
     myPrivateKey: null, // CryptoKey (in-memory only, not stored in state permanently)
@@ -239,6 +325,7 @@ export const useAuthStore = create((set, get) => ({
 
             set({ user: data });
             get().connectSocket();
+            get().fetchFaceProfile();
 
             // Non-blocking: fire E2EE key init in background so login navigation is instant
             get()._initE2EEKeys().then(keys => {
@@ -322,6 +409,7 @@ export const useAuthStore = create((set, get) => ({
             set({ user: data, isCheckingAuth: false });
 
             get().connectSocket();
+            get().fetchFaceProfile();
             get()._initE2EEKeys().then(keys => {
                 if (keys && keys.keyId) get()._uploadPublicKey(keys);
             });

@@ -255,3 +255,102 @@ export const getEncryptedKeyRing = async (req, res) => {
         res.status(500).json({ message: 'Server Error' });
     }
 };
+
+// @desc Save user's 128-d Face Biometric Descriptor & eye baseline
+export const saveFaceProfile = async (req, res) => {
+    try {
+        const { descriptor, eyeRatioBaseline } = req.body;
+        if (!descriptor || !Array.isArray(descriptor) || descriptor.length !== 128) {
+            return res.status(400).json({ message: 'Invalid face biometric descriptor. Exactly 128 float values required.' });
+        }
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ message: 'User not found.' });
+
+        user.faceProfile = {
+            isConfigured: true,
+            descriptor: descriptor.map(Number),
+            enrolledAt: new Date(),
+            eyeRatioBaseline: Number(eyeRatioBaseline) || 0.2
+        };
+        user.antiSnatchProtection = true;
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Face biometric template registered successfully.',
+            isConfigured: true,
+            enrolledAt: user.faceProfile.enrolledAt
+        });
+    } catch (error) {
+        console.error('Save face profile error:', error);
+        res.status(500).json({ message: 'Server error saving face biometric profile.' });
+    }
+};
+
+// @desc Get user's Face Biometric profile and descriptor for client verification
+export const getFaceProfile = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id).select('faceProfile antiSnatchProtection');
+        if (!user) return res.status(404).json({ message: 'User not found.' });
+        res.status(200).json({
+            isConfigured: user.faceProfile?.isConfigured || false,
+            descriptor: user.faceProfile?.descriptor || [],
+            enrolledAt: user.faceProfile?.enrolledAt || null,
+            eyeRatioBaseline: user.faceProfile?.eyeRatioBaseline || 0.2,
+            antiSnatchProtection: user.antiSnatchProtection !== false
+        });
+    } catch (error) {
+        console.error('Get face profile error:', error);
+        res.status(500).json({ message: 'Server error retrieving face biometric profile.' });
+    }
+};
+
+// @desc Clear user's Face Biometric profile (allow re-enrollment)
+export const deleteFaceProfile = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ message: 'User not found.' });
+        user.faceProfile = { isConfigured: false, descriptor: [], enrolledAt: null, eyeRatioBaseline: null };
+        await user.save();
+        res.status(200).json({ success: true, message: 'Face biometric profile cleared successfully.' });
+    } catch (error) {
+        console.error('Delete face profile error:', error);
+        res.status(500).json({ message: 'Server error deleting face biometric profile.' });
+    }
+};
+
+// @desc Toggle real-time anti-snatch eye/face protection
+export const toggleAntiSnatch = async (req, res) => {
+    try {
+        const { enabled } = req.body;
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ message: 'User not found.' });
+        user.antiSnatchProtection = Boolean(enabled);
+        await user.save();
+        res.status(200).json({ success: true, antiSnatchProtection: user.antiSnatchProtection });
+    } catch (error) {
+        console.error('Toggle anti-snatch error:', error);
+        res.status(500).json({ message: 'Server error toggling anti-snatch protection.' });
+    }
+};
+
+// @desc Verify password for security unlock when phone is snatched or face mismatch occurs
+export const unlockWithPassword = async (req, res) => {
+    try {
+        const { password } = req.body;
+        if (!password) {
+            return res.status(400).json({ message: 'Password is required to unlock.' });
+        }
+        const user = await User.findById(req.user._id).select('+password');
+        if (!user) return res.status(404).json({ message: 'User not found.' });
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ message: 'Invalid password. Unlock failed.' });
+        }
+        res.status(200).json({ success: true, message: 'Unlocked successfully.' });
+    } catch (error) {
+        console.error('Unlock error:', error);
+        res.status(500).json({ message: 'Server error verifying password.' });
+    }
+};
+

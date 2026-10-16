@@ -1,0 +1,446 @@
+/* =========================================================
+   Face Biometrics & Anti-Snatch Couple Protection Styles
+   ========================================================= */
+
+/* Top Header Status Badge */
+.eyeguard-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #34d399;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    user-select: none;
+}
+
+.eyeguard-badge:hover {
+    background: rgba(16, 185, 129, 0.22);
+    transform: translateY(-1px);
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+}
+
+.eyeguard-badge.warning {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.4);
+    color: #fbbf24;
+}
+
+.eyeguard-badge.danger {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #f87171;
+    animation: badge-pulse 1.2s infinite ease-in-out;
+}
+
+.eyeguard-badge.unregistered {
+    background: rgba(99, 102, 241, 0.15);
+    border-color: rgba(99, 102, 241, 0.4);
+    color: #a5b4fc;
+}
+
+.eyeguard-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+    animation: dot-glow 2s infinite ease-in-out;
+}
+
+.eyeguard-badge.warning .eyeguard-dot {
+    background: #f59e0b;
+    box-shadow: 0 0 8px #f59e0b;
+}
+
+.eyeguard-badge.danger .eyeguard-dot {
+    background: #ef4444;
+    box-shadow: 0 0 10px #ef4444;
+}
+
+@keyframes dot-glow {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+@keyframes badge-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+}
+
+/* Modal Backdrop */
+.bio-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(5, 10, 20, 0.88);
+    backdrop-filter: blur(16px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    animation: bio-fade-in 0.25s ease-out;
+}
+
+@keyframes bio-fade-in {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* Biometrics Card Container */
+.bio-card {
+    background: #111b21;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    width: 100%;
+    max-width: 480px;
+    padding: 24px;
+    color: #e9edef;
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 30px rgba(16, 185, 129, 0.15);
+    position: relative;
+    overflow: hidden;
+}
+
+.bio-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.bio-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bio-icon-box {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #10b981;
+}
+
+.bio-card-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0;
+    color: #fff;
+}
+
+.bio-card-subtitle {
+    font-size: 12px;
+    color: #8696a0;
+    margin: 2px 0 0 0;
+}
+
+/* Face Scanner Viewport */
+.bio-scanner-viewport {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    max-height: 280px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+    border: 2px solid rgba(16, 185, 129, 0.3);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bio-camera-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* mirror selfie view */
+}
+
+/* HUD Overlay */
+.bio-hud-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.bio-face-oval {
+    width: 180px;
+    height: 230px;
+    border: 2px dashed rgba(16, 185, 129, 0.7);
+    border-radius: 50%;
+    position: relative;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
+    transition: all 0.3s ease;
+}
+
+.bio-face-oval.active {
+    border-color: #10b981;
+    border-style: solid;
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.5);
+}
+
+.bio-face-oval.mismatch {
+    border-color: #ef4444;
+    border-style: solid;
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.6);
+}
+
+/* Laser Scan Line */
+.bio-scan-laser {
+    position: absolute;
+    top: 0;
+    left: 10%;
+    width: 80%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #10b981, #34d399, #10b981, transparent);
+    box-shadow: 0 0 15px #10b981, 0 0 8px #34d399;
+    animation: laser-sweep 2.2s infinite ease-in-out alternate;
+}
+
+@keyframes laser-sweep {
+    0% { top: 15%; opacity: 0.3; }
+    50% { opacity: 1; }
+    100% { top: 85%; opacity: 0.4; }
+}
+
+/* Corner Reticles */
+.bio-reticle {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-color: #10b981;
+    border-style: solid;
+}
+.bio-reticle.tl { top: 10px; left: 10px; border-width: 2px 0 0 2px; }
+.bio-reticle.tr { top: 10px; right: 10px; border-width: 2px 2px 0 0; }
+.bio-reticle.bl { bottom: 10px; left: 10px; border-width: 0 0 2px 2px; }
+.bio-reticle.br { bottom: 10px; right: 10px; border-width: 0 2px 2px 0; }
+
+/* Status readout over video */
+.bio-status-bar {
+    position: absolute;
+    bottom: 12px;
+    left: 16px;
+    right: 16px;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    border-radius: 10px;
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #e9edef;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bio-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+}
+
+.bio-status-pill.success { color: #34d399; }
+.bio-status-pill.warning { color: #fbbf24; }
+.bio-status-pill.danger { color: #f87171; }
+
+/* Progress Meter */
+.bio-progress-wrap {
+    margin-bottom: 20px;
+}
+
+.bio-progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #8696a0;
+    margin-bottom: 6px;
+}
+
+.bio-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #202c33;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.bio-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #10b981, #06b6d4);
+    border-radius: 4px;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Action Buttons */
+.bio-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    width: 100%;
+}
+
+.bio-btn-primary {
+    background: #00a884;
+    color: #111b21;
+}
+
+.bio-btn-primary:hover:not(:disabled) {
+    background: #06cf9c;
+    box-shadow: 0 4px 15px rgba(0, 168, 132, 0.4);
+}
+
+.bio-btn-secondary {
+    background: #202c33;
+    color: #e9edef;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bio-btn-secondary:hover:not(:disabled) {
+    background: #2a3942;
+}
+
+.bio-btn-danger {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.bio-btn-danger:hover {
+    background: rgba(239, 68, 68, 0.25);
+}
+
+.bio-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Fullscreen Anti-Snatch Privacy Lock Screen */
+.antisnatch-lock-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    background: rgba(5, 10, 18, 0.96);
+    backdrop-filter: blur(28px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    color: #fff;
+    text-align: center;
+    animation: lock-alert-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes lock-alert-in {
+    from { opacity: 0; transform: scale(1.05); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.antisnatch-icon-wrap {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: rgba(239, 68, 68, 0.15);
+    border: 2px solid rgba(239, 68, 68, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ef4444;
+    margin-bottom: 16px;
+    box-shadow: 0 0 35px rgba(239, 68, 68, 0.35);
+    animation: alert-pulse 1.8s infinite;
+}
+
+@keyframes alert-pulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(239, 68, 68, 0.3); }
+    50% { transform: scale(1.08); box-shadow: 0 0 50px rgba(239, 68, 68, 0.6); }
+}
+
+.antisnatch-title {
+    font-size: 22px;
+    font-weight: 800;
+    color: #f87171;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.5px;
+}
+
+.antisnatch-subtitle {
+    font-size: 14px;
+    color: #8696a0;
+    max-width: 420px;
+    line-height: 1.5;
+    margin: 0 0 24px 0;
+}
+
+.antisnatch-scan-box {
+    position: relative;
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 3px solid #ef4444;
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
+    margin-bottom: 24px;
+    background: #000;
+}
+
+.antisnatch-scan-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+}
+
+.antisnatch-unlock-card {
+    background: #111b21;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 20px;
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.antisnatch-pwd-input {
+    width: 100%;
+    padding: 12px 16px;
+    background: #202c33;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    color: #fff;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.antisnatch-pwd-input:focus {
+    border-color: #00a884;
+}

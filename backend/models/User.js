@@ -66,6 +66,28 @@ const userSchema = new mongoose.Schema({
     encryptedKeyRingIv: {
         type: String, // IV used to encrypt the Key Ring
         default: null
+    },
+    faceProfile: {
+        isConfigured: {
+            type: Boolean,
+            default: false
+        },
+        descriptor: {
+            type: [Number],
+            default: []
+        },
+        enrolledAt: {
+            type: Date,
+            default: null
+        },
+        eyeRatioBaseline: {
+            type: Number,
+            default: null
+        }
+    },
+    antiSnatchProtection: {
+        type: Boolean,
+        default: true
     }
 }, { timestamps: true });
 

@@ -16,6 +16,9 @@ export default defineConfig({
             if (id.includes('lucide-react') || id.includes('react-icons')) {
               return 'vendor-icons';
             }
+            if (id.includes('@vladmandic/face-api')) {
+              return 'vendor-faceapi';
+            }
             if (id.includes('socket.io-client')) {
               return 'vendor-socket';
             }

@@ -15,6 +15,10 @@ import VoiceCallButton from '../components/voice/VoiceCallButton';
 import VideoCallButton from '../components/voice/VideoCallButton';
 import ImageZoomModal, { downloadMediaFile } from '../components/ImageZoomModal';
 import CallRecordBubble from '../components/voice/CallRecordBubble';
+import EyeGuardMonitor from '../components/biometrics/EyeGuardMonitor';
+import AntiSnatchLockModal from '../components/biometrics/AntiSnatchLockModal';
+import FaceEnrollModal from '../components/biometrics/FaceEnrollModal';
+import BiometricSettingsModal from '../components/biometrics/BiometricSettingsModal';
 
 const playNotificationSound = () => {
     try {
@@ -117,6 +121,23 @@ const ChatApp = () => {
   const [recoveryState, setRecoveryState] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [aiStatus, setAiStatus] = useState(null);
+  const [showBioEnroll, setShowBioEnroll] = useState(false);
+  const [showBioSettings, setShowBioSettings] = useState(false);
+  const { faceProfile, fetchFaceProfile } = useAuthStore();
+
+  useEffect(() => {
+    fetchFaceProfile();
+  }, [fetchFaceProfile]);
+
+  useEffect(() => {
+    if (user && faceProfile && !faceProfile.isConfigured) {
+      const promptKey = `bioguard_auto_prompt_${user._id}`;
+      if (!sessionStorage.getItem(promptKey)) {
+        sessionStorage.setItem(promptKey, 'true');
+        setShowBioEnroll(true);
+      }
+    }
+  }, [user, faceProfile]);
 
   // Auto-redirect to first project if user navigates to /chat directly
   useEffect(() => {
@@ -764,6 +785,10 @@ const ChatApp = () => {
           </div>
           {isMobile ? (
             <div className="mobile-header-menu" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <EyeGuardMonitor 
+                onOpenSettings={() => setShowBioSettings(true)} 
+                onOpenEnroll={() => setShowBioEnroll(true)} 
+              />
               <VideoCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <VoiceCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <span className="icon-btn" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', color: '#94A3B8' }} aria-label="Menu" aria-expanded={showMobileMenu} onClick={() => setShowMobileMenu(!showMobileMenu)}>
@@ -776,6 +801,11 @@ const ChatApp = () => {
                     onClick={() => setShowMobileMenu(false)}
                   />
                   <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 50, minWidth: '180px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#10B981', borderRadius: '6px', transition: 'background-color 0.2s' }} onClick={() => { setShowBioSettings(true); setShowMobileMenu(false); }}>
+                      <Shield size={18} />
+                      <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>EyeGuard Bio Security</span>
+                    </div>
+
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: showSearchInput ? '#2563EB' : '#94A3B8', borderRadius: '6px', transition: 'background-color 0.2s', backgroundColor: showSearchInput ? '#1E293B' : 'transparent' }} onClick={() => { setShowSearchInput(!showSearchInput); setShowMobileMenu(false); }}>
                       <Search size={18} />
                       <span style={{ fontSize: '14px', fontWeight: '500', fontFamily: '"Inter", sans-serif' }}>Search Chat</span>
@@ -819,6 +849,10 @@ const ChatApp = () => {
             </div>
           ) : (
             <div className="desktop-header-menu" style={{ display: 'flex', gap: '6px', color: '#94A3B8', alignItems: 'center' }}>
+              <EyeGuardMonitor 
+                onOpenSettings={() => setShowBioSettings(true)} 
+                onOpenEnroll={() => setShowBioEnroll(true)} 
+              />
               <VideoCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <VoiceCallButton receiverId={callTarget?._id || callTarget || 'unknown'} receiverName={callTarget?.name || (callTarget?.email ? callTarget.email.split('@')[0] : 'Teammate')} />
               <span onClick={() => { setShowSearchInput(!showSearchInput); if (!showSearchInput) setSearchQuery(''); }} className="icon-btn" title="Search" style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', color: showSearchInput ? '#2563EB' : '#94A3B8', backgroundColor: showSearchInput ? '#1E293B' : 'transparent' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1E293B'} onMouseLeave={e => e.currentTarget.style.backgroundColor = showSearchInput ? '#1E293B' : 'transparent'}>
@@ -1709,6 +1743,18 @@ const ChatApp = () => {
       {/* VOICE CALL UI */}
       <IncomingCallModal />
       <ActiveCallOverlay />
+
+      {/* FACE BIOMETRICS & COUPLE ANTI-SNATCH PROTECTION */}
+      <AntiSnatchLockModal />
+      <FaceEnrollModal 
+          isOpen={showBioEnroll} 
+          onClose={() => setShowBioEnroll(false)} 
+      />
+      <BiometricSettingsModal 
+          isOpen={showBioSettings} 
+          onClose={() => setShowBioSettings(false)} 
+          onOpenEnroll={() => setShowBioEnroll(true)} 
+      />
     </div>
   );
 };
