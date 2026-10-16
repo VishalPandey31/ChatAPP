@@ -4,9 +4,42 @@ import { useChatStore } from './chatStore';
 
 const ICE_SERVERS = {
     iceServers: [
+        // 1. Google Public STUN
         { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" }
-    ]
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        { urls: "stun:stun4.l.google.com:19302" },
+
+        // 2. Cloudflare Public STUN
+        { urls: "stun:stun.cloudflare.com:3478" },
+
+        // 3. OpenRelay Global Free TURN Relays (Metered)
+        // Traverses Symmetric NAT, 4G/5G mobile carriers (Jio, Airtel, Vi), and firewalls
+        {
+            urls: [
+                "stun:openrelay.metered.ca:80",
+                "turn:openrelay.metered.ca:80",
+                "turn:openrelay.metered.ca:80?transport=tcp",
+                "turn:openrelay.metered.ca:443",
+                "turns:openrelay.metered.ca:443?transport=tcp"
+            ],
+            username: "openrelay",
+            credential: "openrelay"
+        },
+        {
+            urls: [
+                "stun:stun.relay.metered.ca:80",
+                "turn:standard.relay.metered.ca:80",
+                "turn:standard.relay.metered.ca:80?transport=tcp",
+                "turn:standard.relay.metered.ca:443",
+                "turns:standard.relay.metered.ca:443?transport=tcp"
+            ],
+            username: "openrelay",
+            credential: "openrelay"
+        }
+    ],
+    iceCandidatePoolSize: 10
 };
 
 // Format duration for display
@@ -133,14 +166,18 @@ export const useVoiceCallStore = create((set, get) => ({
 
         socket.on('webrtc-ice-candidate', async (data) => {
             const { candidate, callId } = data;
+            if (!candidate) return;
             const { activeCall, peerConnection, iceCandidateQueue } = get();
-            if (!activeCall || activeCall.callId !== callId || !peerConnection) return;
-            const rtcCandidate = new RTCIceCandidate(candidate);
-            if (peerConnection.remoteDescription?.type) {
-                try { await peerConnection.addIceCandidate(rtcCandidate); }
-                catch (e) { console.error("ICE candidate error", e); }
+            if (!activeCall || activeCall.callId !== callId) return;
+
+            if (peerConnection && peerConnection.remoteDescription?.type) {
+                try { 
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); 
+                } catch (e) { 
+                    console.warn("ICE candidate apply error:", e); 
+                }
             } else {
-                set({ iceCandidateQueue: [...iceCandidateQueue, rtcCandidate] });
+                set({ iceCandidateQueue: [...(get().iceCandidateQueue || []), candidate] });
             }
         });
 
@@ -155,12 +192,16 @@ export const useVoiceCallStore = create((set, get) => ({
 
     _processIceQueue: async () => {
         const { peerConnection, iceCandidateQueue } = get();
-        if (peerConnection?.remoteDescription) {
-            for (const c of iceCandidateQueue) {
-                try { await peerConnection.addIceCandidate(c); }
-                catch (e) { console.error(e); }
-            }
+        if (peerConnection?.remoteDescription?.type && iceCandidateQueue?.length > 0) {
+            const queue = [...iceCandidateQueue];
             set({ iceCandidateQueue: [] });
+            for (const c of queue) {
+                try { 
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(c)); 
+                } catch (e) { 
+                    console.warn("Queued candidate error:", e); 
+                }
+            }
         }
     },
 
@@ -423,15 +464,31 @@ export const useVoiceCallStore = create((set, get) => ({
         };
 
         pc.ontrack = (event) => {
-            const stream = (event.streams && event.streams[0]) || new MediaStream([event.track]);
-            set({ remoteStream: stream });
+            console.log("[WebRTC] ontrack received:", event.track.kind);
+            set(state => {
+                let stream = state.remoteStream;
+                if (!stream) {
+                    stream = (event.streams && event.streams[0]) || new MediaStream();
+                }
+                if (!stream.getTracks().some(t => t.id === event.track.id)) {
+                    stream.addTrack(event.track);
+                }
+                return { remoteStream: stream };
+            });
+        };
+
+        const handleConnected = () => {
+            if (get().callState !== 'CONNECTED') {
+                console.log("[WebRTC] Call connected successfully!");
+                set({ callState: 'CONNECTED', connectedAt: Date.now() });
+            }
         };
 
         pc.onconnectionstatechange = () => {
-            console.log("[WebRTC] State:", pc.connectionState);
+            console.log("[WebRTC] connectionState:", pc.connectionState);
             if (pc.connectionState === 'connected') {
-                set({ callState: 'CONNECTED', connectedAt: Date.now() });
-            } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+                handleConnected();
+            } else if (['failed', 'closed'].includes(pc.connectionState)) {
                 const { connectedAt, activeCall } = get();
                 if (activeCall) {
                     const duration = connectedAt ? Math.round((Date.now() - connectedAt) / 1000) : 0;
@@ -445,6 +502,18 @@ export const useVoiceCallStore = create((set, get) => ({
             }
         };
 
+        pc.oniceconnectionstatechange = () => {
+            console.log("[WebRTC] ICE Connection State:", pc.iceConnectionState);
+            if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                handleConnected();
+            } else if (pc.iceConnectionState === 'failed') {
+                console.warn("[WebRTC] ICE Connection Failed - attempting restart");
+                if (pc.restartIce) {
+                    try { pc.restartIce(); } catch (e) {}
+                }
+            }
+        };
+
         set({ peerConnection: pc });
         return pc;
     },
@@ -455,9 +524,16 @@ export const useVoiceCallStore = create((set, get) => ({
         const stream = await get()._getLocalStream();
         if (!stream) { get().endCall(); return; }
         const pc = get()._createPeerConnection();
-        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+        stream.getTracks().forEach(track => {
+            track.enabled = true;
+            pc.addTrack(track, stream);
+        });
         try {
-            const offer = await pc.createOffer();
+            const isVideoCall = activeCall?.callType === 'video';
+            const offer = await pc.createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: isVideoCall
+            });
             await pc.setLocalDescription(offer);
             socket.emit('webrtc-offer', { targetId: activeCall.receiverId, offer: pc.localDescription, callId: activeCall.callId });
         } catch (error) {
@@ -472,11 +548,18 @@ export const useVoiceCallStore = create((set, get) => ({
         const stream = await get()._getLocalStream();
         if (!stream) return;
         const pc = get()._createPeerConnection();
-        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+        stream.getTracks().forEach(track => {
+            track.enabled = true;
+            pc.addTrack(track, stream);
+        });
         try {
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
-            get()._processIceQueue();
-            const answer = await pc.createAnswer();
+            await get()._processIceQueue();
+            const isVideoCall = activeCall?.callType === 'video';
+            const answer = await pc.createAnswer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: isVideoCall
+            });
             await pc.setLocalDescription(answer);
             socket.emit('webrtc-answer', { targetId: activeCall.callerId, answer: pc.localDescription, callId: activeCall.callId });
         } catch (error) {
@@ -493,7 +576,8 @@ export const useVoiceCallStore = create((set, get) => ({
             peerConnection.ontrack = null;
             peerConnection.onicecandidate = null;
             peerConnection.onconnectionstatechange = null;
-            peerConnection.close();
+            peerConnection.oniceconnectionstatechange = null;
+            try { peerConnection.close(); } catch (e) {}
         }
         if (localStream) {
             localStream.getTracks().forEach(track => { track.stop(); localStream.removeTrack(track); });

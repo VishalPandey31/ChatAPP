@@ -34,13 +34,38 @@ const ActiveCallOverlay = () => {
     const isVisible = callState === 'CALLING' || callState === 'CONNECTING' || callState === 'CONNECTED';
     const isVideoCall = activeCall?.callType === 'video';
 
+    // Robust audio playback with instant autoplay unlocker
+    const tryPlayAudio = () => {
+        const audioEl = remoteAudioRef.current;
+        if (!audioEl || !remoteStream) return;
+        
+        if (audioEl.srcObject !== remoteStream) {
+            audioEl.srcObject = remoteStream;
+        }
+        audioEl.muted = false;
+        audioEl.volume = 1.0;
+
+        const playPromise = audioEl.play();
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                console.log("[ActiveCallOverlay] Remote audio playing successfully!");
+            }).catch(e => {
+                console.warn("[ActiveCallOverlay] Autoplay blocked, listening for touch/click to unlock audio:", e);
+                const unlock = () => {
+                    audioEl.play().catch(() => {});
+                    window.removeEventListener('click', unlock);
+                    window.removeEventListener('touchstart', unlock);
+                };
+                window.addEventListener('click', unlock, { once: true });
+                window.addEventListener('touchstart', unlock, { once: true });
+            });
+        }
+    };
+
     // Handle remote media stream mapping (audio and video)
     useEffect(() => {
-        if (remoteAudioRef.current && remoteStream) {
-            remoteAudioRef.current.srcObject = remoteStream;
-            remoteAudioRef.current.play().catch(e => {
-                console.warn("Audio autoplay prevented or failed:", e);
-            });
+        if (remoteStream) {
+            tryPlayAudio();
         }
         if (remoteVideoRef.current && remoteStream) {
             remoteVideoRef.current.srcObject = remoteStream;
@@ -48,7 +73,7 @@ const ActiveCallOverlay = () => {
                 console.warn("Remote video play prevented:", e);
             });
         }
-    }, [remoteStream, isVisible]);
+    }, [remoteStream, isVisible, callState]);
 
     // Handle local camera preview
     useEffect(() => {
@@ -161,7 +186,7 @@ const ActiveCallOverlay = () => {
     // ──────────────────────────────────────────
     if (isVideoCall) {
         return (
-            <div className="video-call-screen">
+            <div className="video-call-screen" onClick={tryPlayAudio} onTouchStart={tryPlayAudio}>
                 {/* Main Remote Video */}
                 {remoteStream ? (
                     <video 
@@ -251,7 +276,12 @@ const ActiveCallOverlay = () => {
                 </div>
 
                 {/* Audio element for WebRTC Remote Stream */}
-                <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+                <audio 
+                    ref={remoteAudioRef} 
+                    autoPlay 
+                    playsInline 
+                    style={{ position: 'fixed', top: '-1000px', left: '-1000px', width: '1px', height: '1px', opacity: 0.01, pointerEvents: 'none' }} 
+                />
             </div>
         );
     }
@@ -260,7 +290,7 @@ const ActiveCallOverlay = () => {
     // 2. VOICE CALL UI (WhatsApp Style)
     // ──────────────────────────────────────────
     return (
-        <div className="voice-call-overlay">
+        <div className="voice-call-overlay" onClick={tryPlayAudio} onTouchStart={tryPlayAudio}>
             <div className="voice-call-header">
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
                     <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: '#1e293b', border: '3px solid #25d366', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#25d366', boxShadow: '0 0 25px rgba(37, 211, 102, 0.3)' }} className="pulse-anim">
@@ -301,7 +331,12 @@ const ActiveCallOverlay = () => {
             </div>
 
             {/* Hidden audio element for WebRTC Remote Stream */}
-            <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+            <audio 
+                ref={remoteAudioRef} 
+                autoPlay 
+                playsInline 
+                style={{ position: 'fixed', top: '-1000px', left: '-1000px', width: '1px', height: '1px', opacity: 0.01, pointerEvents: 'none' }} 
+            />
         </div>
     );
 };
