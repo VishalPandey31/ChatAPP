@@ -671,10 +671,30 @@ export const socketHandler = (io) => {
         });
 
         // 3. Watch Together (Synchronized YouTube Video player)
-        socket.on("watch_together:action", (payload) => {
+        socket.on("watch_together:action", async (payload) => {
             const { projectId } = payload || {};
             if (projectId) {
                 socket.to(projectId).emit("watch_together:sync", payload);
+
+                // Direct socket fallback to other project members
+                try {
+                    const project = await Project.findById(projectId).select('admin collaborators');
+                    if (project) {
+                        const allMembers = [project.admin, ...(project.collaborators || [])];
+                        allMembers.forEach(mem => {
+                            if (!mem) return;
+                            const mId = mem._id ? mem._id.toString() : mem.toString();
+                            if (mId !== socket.userId) {
+                                const targetSockets = userSockets.get(mId);
+                                if (targetSockets) {
+                                    targetSockets.forEach(sId => {
+                                        io.to(sId).emit("watch_together:sync", payload);
+                                    });
+                                }
+                            }
+                        });
+                    }
+                } catch (e) {}
             }
         });
 

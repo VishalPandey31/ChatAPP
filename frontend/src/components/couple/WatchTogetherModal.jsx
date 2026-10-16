@@ -1,5 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Play, Pause, RefreshCw, Film, ExternalLink } from 'lucide-react';
+import { 
+    X, 
+    Play, 
+    Pause, 
+    RotateCcw, 
+    RotateCw, 
+    RefreshCw, 
+    Film, 
+    ExternalLink, 
+    Maximize2, 
+    Minimize2, 
+    Radio, 
+    Music, 
+    CheckCircle2, 
+    AlertTriangle 
+} from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import './CoupleFeatures.css';
 
@@ -10,10 +25,23 @@ const YoutubeIcon = ({ size = 20, color = 'currentColor', style = {} }) => (
     </svg>
 );
 
+const PRESETS = [
+    { id: 'jfKfPfyJRdk', title: '🎧 Lo-Fi Beats (24/7)', type: 'lofi' },
+    { id: 'kJQP7kiw5Fk', title: '❤️ Romantic Melodies', type: 'romantic' },
+    { id: 'DeimyLD57ZE', title: '☕ Rainy Cafe Vibes', type: 'chill' },
+    { id: 'B91wc5dCEBA', title: '📱 Trending Short', type: 'short' },
+    { id: 'JGwWNGJdvx8', title: '🎵 Shape of You', type: 'music' }
+];
+
 export default function WatchTogetherModal({ isOpen = true, onClose, projectId, partnerName }) {
     const { socket } = useAuthStore();
     const [videoInput, setVideoInput] = useState('');
-    const [currentVideoId, setCurrentVideoId] = useState('5qap5aO4i9A'); // Guaranteed active permanent Lo-Fi Chill Beats
+    const [currentVideoId, setCurrentVideoId] = useState('jfKfPfyJRdk'); // High-reliability active Lo-Fi stream
+    const [isPlaying, setIsPlaying] = useState(true);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [isTheater, setIsTheater] = useState(false); // Bada Screen / Theater Mode
+    const [playerEngine, setPlayerEngine] = useState('youtube'); // 'youtube' or 'invidious' (unrestricted)
+    const [syncStatus, setSyncStatus] = useState('Connected');
     const iframeRef = useRef(null);
 
     // Extract YouTube ID from standard video, Shorts, mobile, or embed URL
@@ -21,7 +49,7 @@ export default function WatchTogetherModal({ isOpen = true, onClose, projectId, 
         if (!input) return '';
         const clean = input.trim();
 
-        // 1. YouTube Shorts: youtube.com/shorts/<id> or youtu.be/shorts/<id>
+        // 1. YouTube Shorts: youtube.com/shorts/<id>
         const shortsMatch = clean.match(/(?:youtube\.com|youtu\.be)\/shorts\/([a-zA-Z0-9_-]{11})/i);
         if (shortsMatch && shortsMatch[1]) return shortsMatch[1];
 
@@ -52,13 +80,50 @@ export default function WatchTogetherModal({ isOpen = true, onClose, projectId, 
         return clean;
     };
 
-    // Socket sync listener
+    // Send command to the YouTube iframe via standard postMessage
+    const sendPlayerCommand = (func, args = []) => {
+        if (iframeRef.current && iframeRef.current.contentWindow) {
+            try {
+                iframeRef.current.contentWindow.postMessage(
+                    JSON.stringify({ event: 'command', func, args }),
+                    '*'
+                );
+            } catch (e) {
+                console.warn('[WatchTogether] postMessage error:', e);
+            }
+        }
+    };
+
+    // Listen to two-way socket events from partner
     useEffect(() => {
         if (!isOpen || !socket) return;
 
         const handleSync = (payload) => {
-            if (payload?.action === 'LOAD_VIDEO' && payload?.videoId) {
+            if (!payload) return;
+            setSyncStatus(`Synced with ${partnerName || 'Partner'}`);
+            setTimeout(() => setSyncStatus('Connected'), 2500);
+
+            if (payload.action === 'LOAD_VIDEO' && payload.videoId) {
                 setCurrentVideoId(payload.videoId);
+                if (payload.engine) setPlayerEngine(payload.engine);
+                setIsPlaying(true);
+            } else if (payload.action === 'PLAY') {
+                setIsPlaying(true);
+                sendPlayerCommand('playVideo');
+                if (typeof payload.currentTime === 'number') {
+                    sendPlayerCommand('seekTo', [payload.currentTime, true]);
+                }
+            } else if (payload.action === 'PAUSE') {
+                setIsPlaying(false);
+                sendPlayerCommand('pauseVideo');
+                if (typeof payload.currentTime === 'number') {
+                    sendPlayerCommand('seekTo', [payload.currentTime, true]);
+                }
+            } else if (payload.action === 'SEEK' && typeof payload.time === 'number') {
+                setCurrentTime(payload.time);
+                sendPlayerCommand('seekTo', [payload.time, true]);
+            } else if (payload.action === 'CHANGE_ENGINE' && payload.engine) {
+                setPlayerEngine(payload.engine);
             }
         };
 
@@ -67,97 +132,368 @@ export default function WatchTogetherModal({ isOpen = true, onClose, projectId, 
         return () => {
             socket.off('watch_together:sync', handleSync);
         };
-    }, [isOpen, socket]);
+    }, [isOpen, socket, partnerName]);
 
     if (isOpen === false) return null;
 
+    // Build the optimal embed URL based on chosen engine
+    const getEmbedSrc = () => {
+        const origin = window.location.origin;
+        if (playerEngine === 'invidious') {
+            // Unrestricted mirror that bypasses "Playback restricted by owner" blocks
+            return `https://yewtu.be/embed/${currentVideoId}?autoplay=1`;
+        }
+        // Official YouTube Embed with origin and strict-origin referrer support
+        return `https://www.youtube.com/embed/${currentVideoId}?autoplay=1&enablejsapi=1&origin=${encodeURIComponent(origin)}&widget_referrer=${encodeURIComponent(origin)}&playsinline=1&rel=0`;
+    };
+
+    // User loads a new video or Shorts URL
     const handleLoadVideo = (e) => {
         if (e) e.preventDefault();
         const id = extractVideoId(videoInput);
         if (id) {
             setCurrentVideoId(id);
             setVideoInput('');
+            setIsPlaying(true);
             if (socket && projectId) {
                 socket.emit('watch_together:action', {
                     projectId,
                     action: 'LOAD_VIDEO',
-                    videoId: id
+                    videoId: id,
+                    engine: playerEngine
                 });
             }
         }
     };
 
+    // User selects a quick preset
     const handleQuickPreset = (presetId) => {
         setCurrentVideoId(presetId);
+        setIsPlaying(true);
         if (socket && projectId) {
             socket.emit('watch_together:action', {
                 projectId,
                 action: 'LOAD_VIDEO',
-                videoId: presetId
+                videoId: presetId,
+                engine: playerEngine
+            });
+        }
+    };
+
+    // Synced Control: Play
+    const handlePlay = () => {
+        setIsPlaying(true);
+        sendPlayerCommand('playVideo');
+        if (socket && projectId) {
+            socket.emit('watch_together:action', {
+                projectId,
+                action: 'PLAY',
+                currentTime
+            });
+        }
+    };
+
+    // Synced Control: Pause
+    const handlePause = () => {
+        setIsPlaying(false);
+        sendPlayerCommand('pauseVideo');
+        if (socket && projectId) {
+            socket.emit('watch_together:action', {
+                projectId,
+                action: 'PAUSE',
+                currentTime
+            });
+        }
+    };
+
+    // Synced Control: Skip -10 seconds
+    const handleRewind10 = () => {
+        const target = Math.max(0, currentTime - 10);
+        setCurrentTime(target);
+        sendPlayerCommand('seekTo', [target, true]);
+        if (socket && projectId) {
+            socket.emit('watch_together:action', {
+                projectId,
+                action: 'SEEK',
+                time: target
+            });
+        }
+    };
+
+    // Synced Control: Skip +10 seconds
+    const handleForward10 = () => {
+        const target = currentTime + 10;
+        setCurrentTime(target);
+        sendPlayerCommand('seekTo', [target, true]);
+        if (socket && projectId) {
+            socket.emit('watch_together:action', {
+                projectId,
+                action: 'SEEK',
+                time: target
+            });
+        }
+    };
+
+    // Synced Control: Force Resync
+    const handleSyncNow = () => {
+        sendPlayerCommand('seekTo', [currentTime, true]);
+        if (socket && projectId) {
+            socket.emit('watch_together:action', {
+                projectId,
+                action: 'SEEK',
+                time: currentTime
+            });
+        }
+        setSyncStatus('Timing re-aligned!');
+        setTimeout(() => setSyncStatus('Connected'), 2500);
+    };
+
+    // Toggle between Official YouTube and Unrestricted Invidious Player
+    const handleToggleEngine = () => {
+        const newEngine = playerEngine === 'youtube' ? 'invidious' : 'youtube';
+        setPlayerEngine(newEngine);
+        if (socket && projectId) {
+            socket.emit('watch_together:action', {
+                projectId,
+                action: 'CHANGE_ENGINE',
+                engine: newEngine
             });
         }
     };
 
     return (
         <div className="watch-together-overlay">
-            <div className="watch-together-card">
-                {/* Header */}
-                <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <YoutubeIcon size={22} color="#ef4444" />
-                        <div>
-                            <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 16, fontWeight: 700 }}>
-                                Watch Together (YouTube Sync)
-                            </h3>
+            <div className={`watch-together-card ${isTheater ? 'is-theater' : ''}`}>
+                {/* Header with Title, Sync Status & Theater Mode */}
+                <div style={{ 
+                    padding: '12px 18px', 
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.08)', 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    backgroundColor: '#090d16' 
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <YoutubeIcon size={24} color="#ef4444" />
+                        <div style={{ minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <h3 style={{ margin: 0, color: '#f8fafc', fontSize: 16, fontWeight: 700 }}>
+                                    Watch Together
+                                </h3>
+                                <span style={{
+                                    fontSize: 11,
+                                    backgroundColor: 'rgba(37, 211, 102, 0.15)',
+                                    color: '#25d366',
+                                    border: '1px solid rgba(37, 211, 102, 0.3)',
+                                    borderRadius: 12,
+                                    padding: '2px 8px',
+                                    fontWeight: 600,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4
+                                }}>
+                                    <CheckCircle2 size={11} />
+                                    {syncStatus}
+                                </span>
+                            </div>
                             <span style={{ fontSize: 12, color: '#94a3b8' }}>
-                                Synced with {partnerName || 'Partner'}
+                                Both controlling in real-time with {partnerName || 'Partner'}
                             </span>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        {/* Toggle Theater / Maximize Mode (Bada Screen) */}
+                        <button
+                            type="button"
+                            onClick={() => setIsTheater(!isTheater)}
+                            title={isTheater ? "Normal View" : "Theater Mode (Bada Screen)"}
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4, 
+                                color: isTheater ? '#ef4444' : '#94a3b8', 
+                                fontSize: 12, 
+                                padding: '6px 10px', 
+                                borderRadius: 8, 
+                                background: isTheater ? 'rgba(239, 68, 68, 0.15)' : '#1e293b',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                            }}
+                        >
+                            {isTheater ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                            <span style={{ display: 'none', md: 'inline' }}>{isTheater ? 'Exit' : 'Full'}</span>
+                        </button>
+
+                        {/* Open in YouTube App */}
                         <a
                             href={`https://youtu.be/${currentVideoId}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             title="Open in YouTube App"
-                            style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#94a3b8', fontSize: 12, textDecoration: 'none', padding: '4px 8px', borderRadius: 6, background: '#1e293b' }}
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4, 
+                                color: '#94a3b8', 
+                                fontSize: 12, 
+                                textDecoration: 'none', 
+                                padding: '6px 10px', 
+                                borderRadius: 8, 
+                                background: '#1e293b',
+                                border: '1px solid rgba(255, 255, 255, 0.1)'
+                            }}
                         >
-                            <ExternalLink size={14} /> Open
+                            <ExternalLink size={14} /> 
+                            <span>App</span>
                         </a>
+
+                        {/* Close Modal */}
                         <button
+                            type="button"
                             onClick={onClose}
-                            style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 6 }}
+                            style={{ 
+                                background: 'transparent', 
+                                border: 'none', 
+                                color: '#94a3b8', 
+                                cursor: 'pointer', 
+                                padding: 6,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                            title="Close"
                         >
                             <X size={20} />
                         </button>
                     </div>
                 </div>
 
-                {/* Player Frame */}
+                {/* Main Player Frame (Clean & Unrestricted) */}
                 <div className="watch-player-wrapper">
                     <iframe
+                        key={`${currentVideoId}-${playerEngine}`}
                         ref={iframeRef}
                         className="watch-player-iframe"
-                        src={`https://www.youtube-nocookie.com/embed/${currentVideoId}?autoplay=1&enablejsapi=1&rel=0`}
-                        title="YouTube video player"
+                        src={getEmbedSrc()}
+                        title="Watch Together Video Player"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        referrerPolicy="strict-origin-when-cross-origin"
                         allowFullScreen
                     />
                 </div>
 
-                {/* Controls & Input */}
-                <div style={{ padding: 18, backgroundColor: '#090d16', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                    <form onSubmit={handleLoadVideo} style={{ display: 'flex', gap: 10 }}>
+                {/* ─── SYNCHRONIZED TWO-WAY CONTROLLER BAR ─── */}
+                <div className="watch-sync-toolbar">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {/* Play / Pause Toggle Button */}
+                        {isPlaying ? (
+                            <button
+                                type="button"
+                                className="watch-sync-ctrl-btn play-btn"
+                                onClick={handlePause}
+                                title="Pause for both"
+                            >
+                                <Pause size={16} />
+                                <span>Pause</span>
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                className="watch-sync-ctrl-btn play-btn"
+                                onClick={handlePlay}
+                                title="Play for both"
+                            >
+                                <Play size={16} />
+                                <span>Play</span>
+                            </button>
+                        )}
+
+                        {/* Rewind 10s */}
+                        <button
+                            type="button"
+                            className="watch-sync-ctrl-btn"
+                            onClick={handleRewind10}
+                            title="Rewind 10 seconds for both"
+                        >
+                            <RotateCcw size={14} />
+                            <span>-10s</span>
+                        </button>
+
+                        {/* Forward 10s */}
+                        <button
+                            type="button"
+                            className="watch-sync-ctrl-btn"
+                            onClick={handleForward10}
+                            title="Forward 10 seconds for both"
+                        >
+                            <RotateCw size={14} />
+                            <span>+10s</span>
+                        </button>
+
+                        {/* Resync Button */}
+                        <button
+                            type="button"
+                            className="watch-sync-ctrl-btn"
+                            onClick={handleSyncNow}
+                            title="Force Resync"
+                        >
+                            <RefreshCw size={14} />
+                            <span>Sync</span>
+                        </button>
+                    </div>
+
+                    {/* Unrestricted Player Engine Switcher (Fix for "Video unavailable") */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                            type="button"
+                            onClick={handleToggleEngine}
+                            style={{
+                                background: playerEngine === 'invidious' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+                                color: playerEngine === 'invidious' ? '#34d399' : '#f87171',
+                                border: `1px solid ${playerEngine === 'invidious' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                borderRadius: 10,
+                                padding: '6px 12px',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6
+                            }}
+                            title="Switch player engine if video shows unavailable"
+                        >
+                            <Radio size={14} />
+                            <span>
+                                {playerEngine === 'youtube' 
+                                    ? 'Video unavailable? Switch to Unrestricted Player' 
+                                    : 'Using Unrestricted Player (Active)'}
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Input & Quick Presets Section */}
+                <div style={{ 
+                    padding: '12px 16px 16px', 
+                    backgroundColor: '#0b1120', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: 10 
+                }}>
+                    {/* Link Input Bar */}
+                    <form onSubmit={handleLoadVideo} style={{ display: 'flex', gap: 8 }}>
                         <input
                             type="text"
-                            placeholder="Paste YouTube Video or Shorts link (e.g. youtube.com/shorts/...)"
+                            placeholder="Paste YouTube Video or Shorts link (e.g. youtube.com/shorts/... or song link)"
                             value={videoInput}
                             onChange={(e) => setVideoInput(e.target.value)}
                             style={{
                                 flex: 1,
                                 backgroundColor: '#1e293b',
-                                border: '1px solid #334155',
-                                borderRadius: 8,
+                                border: '1px solid rgba(255, 255, 255, 0.12)',
+                                borderRadius: 10,
                                 padding: '10px 14px',
                                 color: '#f8fafc',
                                 fontSize: 13,
@@ -170,7 +506,7 @@ export default function WatchTogetherModal({ isOpen = true, onClose, projectId, 
                                 backgroundColor: '#ef4444',
                                 color: '#ffffff',
                                 border: 'none',
-                                borderRadius: 8,
+                                borderRadius: 10,
                                 padding: '10px 18px',
                                 fontSize: 13,
                                 fontWeight: 600,
@@ -178,7 +514,8 @@ export default function WatchTogetherModal({ isOpen = true, onClose, projectId, 
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 6,
-                                whiteSpace: 'nowrap'
+                                whiteSpace: 'nowrap',
+                                boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)'
                             }}
                         >
                             <Film size={15} />
@@ -186,37 +523,31 @@ export default function WatchTogetherModal({ isOpen = true, onClose, projectId, 
                         </button>
                     </form>
 
-                    {/* Romantic / Chill Presets */}
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>Quick Presets:</span>
-                        <button
-                            type="button"
-                            onClick={() => handleQuickPreset('5qap5aO4i9A')}
-                            style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', borderRadius: 20, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}
-                        >
-                            🎧 Lo-Fi Beats
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => handleQuickPreset('kJQP7kiw5Fk')}
-                            style={{ background: 'rgba(236, 72, 153, 0.12)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#f472b6', borderRadius: 20, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}
-                        >
-                            ❤️ Romantic Melodies
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => handleQuickPreset('DeimyLD57ZE')}
-                            style={{ background: 'rgba(59, 130, 246, 0.12)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#93c5fd', borderRadius: 20, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}
-                        >
-                            ☕ Rainy Cafe
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => handleQuickPreset('B91wc5dCEBA')}
-                            style={{ background: 'rgba(168, 85, 247, 0.12)', border: '1px solid rgba(168, 85, 247, 0.3)', color: '#d8b4fe', borderRadius: 20, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}
-                        >
-                            📱 YouTube Short
-                        </button>
+                    {/* Presets: Songs, Lo-Fi, Shorts */}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginRight: 4 }}>
+                            QUICK PLAY:
+                        </span>
+                        {PRESETS.map((preset) => (
+                            <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => handleQuickPreset(preset.id)}
+                                style={{
+                                    background: currentVideoId === preset.id ? 'rgba(239, 68, 68, 0.25)' : 'rgba(255, 255, 255, 0.06)',
+                                    border: currentVideoId === preset.id ? '1px solid #ef4444' : '1px solid rgba(255, 255, 255, 0.1)',
+                                    color: currentVideoId === preset.id ? '#f87171' : '#e2e8f0',
+                                    borderRadius: 20,
+                                    padding: '5px 12px',
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                {preset.title}
+                            </button>
+                        ))}
                     </div>
                 </div>
             </div>
