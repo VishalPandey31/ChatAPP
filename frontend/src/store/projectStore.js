@@ -48,9 +48,15 @@ export const useProjectStore = create((set) => ({
                 body: JSON.stringify({ name })
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.message);
+            if (!res.ok) throw new Error(data.message || 'Failed to create project');
 
-            set((state) => ({ projects: [...state.projects, data], isCreating: false }));
+            set((state) => {
+                const exists = state.projects.some(p => p._id === data._id);
+                return {
+                    projects: exists ? state.projects : [data, ...state.projects],
+                    isCreating: false
+                };
+            });
             return data;
         } catch (error) {
             set({ error: error.message, isCreating: false });
@@ -60,11 +66,45 @@ export const useProjectStore = create((set) => ({
 
     deleteProject: async (projectId) => {
         try {
-            await apiFetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+            const res = await apiFetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.message || 'Failed to delete project');
+            }
             set((state) => ({ projects: state.projects.filter(p => p._id !== projectId) }));
+            return true;
         } catch (error) {
             console.error("Failed to delete project:", error);
+            alert(error.message || "Failed to delete project");
+            throw error;
         }
+    },
+
+    addProjectRealtime: (newProject) => {
+        if (!newProject || !newProject._id) return;
+        set((state) => {
+            const exists = state.projects.some(p => p._id === newProject._id);
+            if (exists) {
+                return {
+                    projects: state.projects.map(p => p._id === newProject._id ? newProject : p)
+                };
+            }
+            return { projects: [newProject, ...state.projects] };
+        });
+    },
+
+    removeProjectRealtime: (projectId) => {
+        if (!projectId) return;
+        set((state) => ({
+            projects: state.projects.filter(p => p._id !== projectId)
+        }));
+    },
+
+    updateProjectRealtime: (updatedProject) => {
+        if (!updatedProject || !updatedProject._id) return;
+        set((state) => ({
+            projects: state.projects.map(p => p._id === updatedProject._id ? updatedProject : p)
+        }));
     },
 
     toggleScreenshotProtection: async (projectId) => {

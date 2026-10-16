@@ -6,8 +6,8 @@ import { FaPlus, FaUsers, FaSignOutAlt, FaTrash, FaShieldAlt, FaYoutube, FaComme
 import FaceEnrollModal from '../components/biometrics/FaceEnrollModal';
 
 const ProjectDashboard = () => {
-  const { user, logout, faceProfile, fetchFaceProfile, securityMode, setSecurityMode } = useAuthStore();
-  const { projects, isLoading, fetchProjects, createProject, deleteProject, toggleScreenshotProtection } = useProjectStore();
+  const { user, logout, socket, faceProfile, fetchFaceProfile, securityMode, setSecurityMode } = useAuthStore();
+  const { projects, isLoading, fetchProjects, createProject, deleteProject, toggleScreenshotProtection, addProjectRealtime, removeProjectRealtime, updateProjectRealtime } = useProjectStore();
   const navigate = useNavigate();
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showFaceEnrollModal, setShowFaceEnrollModal] = useState(false);
@@ -16,7 +16,29 @@ const ProjectDashboard = () => {
   useEffect(() => {
     fetchProjects();
     fetchFaceProfile();
-  }, [fetchProjects, fetchFaceProfile]);
+
+    if (socket) {
+      const handleCreated = (newProject) => {
+        addProjectRealtime(newProject);
+      };
+      const handleDeleted = ({ projectId }) => {
+        removeProjectRealtime(projectId);
+      };
+      const handleUpdated = (updatedProject) => {
+        updateProjectRealtime(updatedProject);
+      };
+
+      socket.on('project:created', handleCreated);
+      socket.on('project:deleted', handleDeleted);
+      socket.on('project:updated', handleUpdated);
+
+      return () => {
+        socket.off('project:created', handleCreated);
+        socket.off('project:deleted', handleDeleted);
+        socket.off('project:updated', handleUpdated);
+      };
+    }
+  }, [fetchProjects, fetchFaceProfile, socket, addProjectRealtime, removeProjectRealtime, updateProjectRealtime]);
 
   const handleSelectMode = (mode) => {
     setSecurityMode(mode);
@@ -253,8 +275,8 @@ const ProjectDashboard = () => {
       {/* Projects Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>
         
-        {/* NEW PROJECT CARD (Visible to Admins only) */}
-        {user?.role === 'ADMIN' && (
+        {/* NEW PROJECT CARD (Visible to Admins and Approved Users) */}
+        {(user?.role === 'ADMIN' || user?.approvalStatus === 'APPROVED') && (
           <div 
             onClick={() => setShowNewProjectModal(true)}
           style={{ 
@@ -303,7 +325,7 @@ const ProjectDashboard = () => {
               onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
               onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1e293b' }}
             >
-              {user?.role === 'ADMIN' && (
+              {(user?.role === 'ADMIN' || user?.approvalStatus === 'APPROVED') && (
                 <div style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', gap: '12px' }}>
                   <button
                     onClick={(e) => {
@@ -325,7 +347,7 @@ const ProjectDashboard = () => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (window.confirm("Are you sure you want to delete this project?")) {
+                      if (window.confirm("Are you sure you want to delete this project? All chat history in it will be permanently deleted.")) {
                         deleteProject(project._id);
                       }
                     }}

@@ -497,6 +497,22 @@ export const useAuthStore = create((set, get) => ({
             get().logout();
         });
 
+        // Real-time synchronization of projects / chats across both users
+        socket.on('project:created', (newProject) => {
+            console.log('[Socket] New project created:', newProject?.name);
+            useProjectStore.getState().addProjectRealtime(newProject);
+        });
+
+        socket.on('project:deleted', ({ projectId }) => {
+            console.log('[Socket] Project deleted:', projectId);
+            useProjectStore.getState().removeProjectRealtime(projectId);
+        });
+
+        socket.on('project:updated', (updatedProject) => {
+            console.log('[Socket] Project updated:', updatedProject?.name);
+            useProjectStore.getState().updateProjectRealtime(updatedProject);
+        });
+
         socket.connect();
         set({ socket });
     }

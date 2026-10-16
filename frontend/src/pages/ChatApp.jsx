@@ -463,8 +463,16 @@ const ChatApp = () => {
       socket.on('message_reaction_updated', handleReactionUpdated);
       socket.on('message_status_update', handleStatusUpdate);
       socket.on('project_status_read', handleProjectRead);
+      const handleProjectDeleted = ({ projectId: deletedId }) => {
+        if (deletedId === projectId) {
+          alert('This chat project has been deleted.');
+          navigate('/dashboard');
+        }
+      };
+
       socket.on('display_typing_project', handleDisplayTyping);
       socket.on('hide_typing_project', handleHideTyping);
+      socket.on('project:deleted', handleProjectDeleted);
 
       return () => {
         socket.off('connect', onConnectResume);
@@ -477,9 +485,10 @@ const ChatApp = () => {
         socket.off('project_status_read', handleProjectRead);
         socket.off('display_typing_project', handleDisplayTyping);
         socket.off('hide_typing_project', handleHideTyping);
+        socket.off('project:deleted', handleProjectDeleted);
       };
     }
-  }, [socket, projectId, addMessage, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, user]);
+  }, [socket, projectId, addMessage, updateMessage, deleteMessageLocally, updateMessageStatus, updateProjectMessagesStatus, user, navigate]);
 
   useEffect(() => {
     // Only smooth scroll if actually needed, don't blindly thrash layout
