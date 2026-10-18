@@ -25,13 +25,11 @@ const YoutubeIcon = ({ size = 20, color = 'currentColor', style = {} }) => (
         <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill={color}></polygon>
     </svg>
 );
-import CalculatorDisguiseModal from '../components/couple/CalculatorDisguiseModal';
 import VirtualTouchModal from '../components/couple/VirtualTouchModal';
 import WatchTogetherModal from '../components/couple/WatchTogetherModal';
 import CoupleVaultModal from '../components/couple/CoupleVaultModal';
 import CoupleWatermark from '../components/couple/CoupleWatermark';
 import ViewOnceModal from '../components/couple/ViewOnceModal';
-import DecoyChatModal from '../components/couple/DecoyChatModal';
 
 const playNotificationSound = () => {
     try {
@@ -182,54 +180,14 @@ const ChatApp = () => {
   const { faceProfile, fetchFaceProfile } = useAuthStore();
 
   // ─── SECRET COUPLE FEATURES STATE ───
-  const [showCalculatorDisguise, setShowCalculatorDisguise] = useState(false);
   const [showVirtualTouch, setShowVirtualTouch] = useState(false);
   const [showWatchTogether, setShowWatchTogether] = useState(false);
   const [showCoupleVault, setShowCoupleVault] = useState(false);
-  const [showDecoyChat, setShowDecoyChat] = useState(false);
   const [viewOnceActiveMsg, setViewOnceActiveMsg] = useState(null);
   const [selfDestructTimer, setSelfDestructTimer] = useState(0); // 0, 10, 60, 3600, 86400
   const [isViewOnceMedia, setIsViewOnceMedia] = useState(false);
   const [isWhisperMode, setIsWhisperMode] = useState(false);
   const [showBurnTimerModal, setShowBurnTimerModal] = useState(false);
-
-  // Stealth & Panic triggers: Escape key, Flip phone face down, and Shake phone
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setShowCalculatorDisguise(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-
-    const handleOrientation = (e) => {
-      if (e.beta !== null && (Math.abs(e.beta) > 150)) {
-        setShowCalculatorDisguise(true);
-      }
-    };
-    window.addEventListener('deviceorientation', handleOrientation);
-
-    let lastShake = 0;
-    const handleMotion = (e) => {
-      const acc = e.accelerationIncludingGravity;
-      if (!acc) return;
-      const speed = Math.sqrt((acc.x || 0) ** 2 + (acc.y || 0) ** 2 + (acc.z || 0) ** 2);
-      if (speed > 26) {
-        const now = Date.now();
-        if (now - lastShake > 1500) {
-          lastShake = now;
-          setShowCalculatorDisguise(true);
-        }
-      }
-    };
-    window.addEventListener('devicemotion', handleMotion);
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('deviceorientation', handleOrientation);
-      window.removeEventListener('devicemotion', handleMotion);
-    };
-  }, []);
 
   // Client-side self-destruct countdown check
   useEffect(() => {
@@ -1029,10 +987,6 @@ const ChatApp = () => {
                     onClick={() => setShowMobileMenu(false)}
                   />
                   <div style={{ position: 'absolute', top: '100%', right: '0', backgroundColor: '#111827', border: '1px solid #243044', borderRadius: '12px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 50, minWidth: '220px', boxShadow: '0 10px 25px -3px rgba(0, 0, 0, 0.7)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', cursor: 'pointer', color: '#f87171', borderRadius: '6px', backgroundColor: 'rgba(239, 68, 68, 0.1)', fontWeight: '600' }} onClick={() => { setShowCalculatorDisguise(true); setShowMobileMenu(false); }}>
-                      <ShieldAlert size={18} />
-                      <span style={{ fontSize: '14px', fontFamily: '"Inter", sans-serif' }}>🧮 Calculator Panic Hide</span>
-                    </div>
 
                     {/* 🔥 Burn Timer / Self-Destruct Messages */}
                     <div 
@@ -1142,29 +1096,6 @@ const ChatApp = () => {
             </div>
           ) : (
             <div className="desktop-header-menu" style={{ display: 'flex', gap: '6px', color: '#94A3B8', alignItems: 'center' }}>
-              {/* Emergency Panic Button */}
-              <button
-                type="button"
-                onClick={() => setShowCalculatorDisguise(true)}
-                title="Emergency Panic: Click or press ESC to hide screen with real Calculator"
-                style={{
-                  background: 'rgba(239, 68, 68, 0.15)',
-                  border: '1px solid #ef4444',
-                  color: '#f87171',
-                  borderRadius: '8px',
-                  padding: '5px 10px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: '700',
-                  boxShadow: '0 0 10px rgba(239, 68, 68, 0.3)'
-                }}
-              >
-                <ShieldAlert size={14} /> Panic (ESC)
-              </button>
-
               {/* Watch Together (YouTube Sync) */}
               <span
                 onClick={() => setShowWatchTogether(true)}
@@ -2274,22 +2205,6 @@ const ChatApp = () => {
 
       {/* ─── SECRET COUPLE FEATURES MODALS & COMPONENTS ─── */}
       <CoupleWatermark userName={user?.name || user?.email?.split('@')[0] || 'User'} />
-
-      {showCalculatorDisguise && (
-        <CalculatorDisguiseModal 
-          onUnlock={() => setShowCalculatorDisguise(false)} 
-          onTriggerDecoy={() => {
-            setShowCalculatorDisguise(false);
-            setShowDecoyChat(true);
-          }}
-        />
-      )}
-
-      {showDecoyChat && (
-        <DecoyChatModal 
-          onExit={() => setShowDecoyChat(false)} 
-        />
-      )}
 
       {showVirtualTouch && (
         <VirtualTouchModal 
