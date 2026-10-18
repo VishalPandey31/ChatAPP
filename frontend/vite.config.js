@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const timestamp = Date.now();
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -8,6 +10,9 @@ export default defineConfig({
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
+        entryFileNames: `assets/[name]-v${timestamp}-[hash].js`,
+        chunkFileNames: `assets/[name]-v${timestamp}-[hash].js`,
+        assetFileNames: `assets/[name]-v${timestamp}-[hash].[ext]`,
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
