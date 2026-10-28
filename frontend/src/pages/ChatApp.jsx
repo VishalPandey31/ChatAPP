@@ -129,50 +129,6 @@ const ChatApp = () => {
   const typingTimeoutRef = useRef(null);
   const textareaRef = useRef(null);
   
-  const [recoveryState, setRecoveryState] = useState(null);
-  const [showKeyRecoveryModal, setShowKeyRecoveryModal] = useState(false);
-  const [keyRecoveryPassword, setKeyRecoveryPassword] = useState('');
-  const [keyRecoveryLoading, setKeyRecoveryLoading] = useState(false);
-  const [keyRecoveryError, setKeyRecoveryError] = useState('');
-
-  const handleTriggerKeyRecovery = async () => {
-    // 1. If password was saved in session, restore immediately without prompting
-    const sessionPw = sessionStorage.getItem('e2ee_session_pw') || window.__tempLoginPassword;
-    if (sessionPw) {
-      try {
-        setRecoveryState('Restoring chat keys from cloud backup...');
-        await useAuthStore.getState().restoreKeyRingWithPassword(sessionPw);
-        setRecoveryState('Chats successfully restored!');
-        setTimeout(() => setRecoveryState(null), 3000);
-        return;
-      } catch (e) {
-        console.warn('Auto restore with session password failed, opening prompt modal', e);
-      }
-    }
-    // 2. Otherwise prompt user to enter their account password
-    setShowKeyRecoveryModal(true);
-    setKeyRecoveryPassword('');
-    setKeyRecoveryError('');
-  };
-
-  const handleManualKeyRecoverySubmit = async (e) => {
-    e.preventDefault();
-    if (!keyRecoveryPassword || keyRecoveryLoading) return;
-    setKeyRecoveryLoading(true);
-    setKeyRecoveryError('');
-    try {
-      await useAuthStore.getState().restoreKeyRingWithPassword(keyRecoveryPassword);
-      setShowKeyRecoveryModal(false);
-      setKeyRecoveryPassword('');
-      setRecoveryState('All chat messages successfully decrypted!');
-      setTimeout(() => setRecoveryState(null), 3000);
-    } catch (err) {
-      setKeyRecoveryError(err.message || 'Incorrect password. Please try again.');
-    } finally {
-      setKeyRecoveryLoading(false);
-    }
-  };
-
   const [isSending, setIsSending] = useState(false);
   const [aiStatus, setAiStatus] = useState(null);
   const [showBioEnroll, setShowBioEnroll] = useState(false);
@@ -1202,50 +1158,6 @@ const ChatApp = () => {
           </div>
         )}
 
-        {recoveryState && (
-          <div style={{ padding: '8px 16px', backgroundColor: '#4C1D95', color: '#DDD6FE', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0, borderBottom: '1px solid #1e293b', fontSize: '13px', fontWeight: '500', animation: 'fadeIn 0.2s' }}>
-            {recoveryState}
-          </div>
-        )}
-
-        {messages.some(m => m.decryptionState === 'FAILED_ROTATED' || m.content === '🔒 Encrypted message') && (
-          <div style={{
-            padding: '10px 16px',
-            backgroundColor: 'rgba(234, 179, 8, 0.14)',
-            borderBottom: '1px solid rgba(234, 179, 8, 0.3)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            fontSize: '13px',
-            color: '#FDE047',
-            gap: '12px',
-            flexShrink: 0
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <ShieldAlert size={16} color="#FACC15" style={{ flexShrink: 0 }} />
-              <span>Some messages require your account password to decrypt.</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleTriggerKeyRecovery}
-              style={{
-                backgroundColor: '#F59E0B',
-                color: '#000',
-                border: 'none',
-                borderRadius: '6px',
-                padding: '5px 12px',
-                fontWeight: '600',
-                fontSize: '12px',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                flexShrink: 0
-              }}
-            >
-              Restore Chats
-            </button>
-          </div>
-        )}
-
         {/* Local Search Input Area */}
         {showSearchInput && (
             <div className="animate-fade-in" style={{ padding: '12px 24px', backgroundColor: '#0B1120', borderBottom: '1px solid #1E293B', display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1726,12 +1638,7 @@ const ChatApp = () => {
                                         <Lock size={15} />
                                         <span style={{ fontWeight: '500' }}>Encrypted message</span>
                                     </div>
-                                    <span 
-                                        onClick={(e) => { e.stopPropagation(); handleTriggerKeyRecovery(); }}
-                                        style={{ fontSize: '11.5px', color: isMine ? '#BFDBFE' : '#60A5FA', textDecoration: 'underline', cursor: 'pointer', opacity: 0.95 }}
-                                    >
-                                        Tap to restore & decrypt
-                                    </span>
+
                                 </div>
                             ) : (
                                 renderMessageContent(msg.content)
@@ -2299,107 +2206,6 @@ const ChatApp = () => {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-      {showKeyRecoveryModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.75)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 99999,
-          padding: '20px'
-        }}>
-          <div style={{
-            backgroundColor: '#0F172A',
-            border: '1px solid #334155',
-            borderRadius: '16px',
-            padding: '24px',
-            maxWidth: '420px',
-            width: '100%',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(234, 179, 8, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <KeyRound size={22} color="#FACC15" />
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '16.5px', color: '#F8FAFC', fontWeight: '600' }}>Restore Encrypted History</h3>
-                <p style={{ margin: 0, fontSize: '12px', color: '#94A3B8' }}>Zero-Knowledge E2EE Cloud Recovery</p>
-              </div>
-            </div>
-
-            <p style={{ fontSize: '13.5px', color: '#CBD5E1', lineHeight: '1.5', margin: '0 0 16px 0' }}>
-              Your chats are end-to-end encrypted. Enter your account password once on this device to unlock and view your entire message history.
-            </p>
-
-            <form onSubmit={handleManualKeyRecoverySubmit}>
-              <input
-                type="password"
-                value={keyRecoveryPassword}
-                onChange={e => setKeyRecoveryPassword(e.target.value)}
-                placeholder="Enter your account password"
-                autoFocus
-                style={{
-                  width: '100%',
-                  padding: '12px 14px',
-                  backgroundColor: '#1E293B',
-                  border: '1px solid #475569',
-                  borderRadius: '8px',
-                  color: '#F8FAFC',
-                  fontSize: '14px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  marginBottom: '10px'
-                }}
-              />
-
-              {keyRecoveryError && (
-                <div style={{ color: '#EF4444', fontSize: '12.5px', marginBottom: '12px' }}>
-                  {keyRecoveryError}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowKeyRecoveryModal(false)}
-                  disabled={keyRecoveryLoading}
-                  style={{
-                    backgroundColor: 'transparent',
-                    border: '1px solid #334155',
-                    color: '#94A3B8',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={keyRecoveryLoading || !keyRecoveryPassword}
-                  style={{
-                    backgroundColor: '#2563EB',
-                    border: 'none',
-                    color: '#FFF',
-                    fontWeight: '600',
-                    padding: '8px 20px',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    cursor: keyRecoveryLoading ? 'wait' : 'pointer',
-                    opacity: keyRecoveryLoading || !keyRecoveryPassword ? 0.6 : 1
-                  }}
-                >
-                  {keyRecoveryLoading ? 'Decrypting...' : 'Unlock History'}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

@@ -221,39 +221,14 @@ export const getPublicKey = async (req, res) => {
     }
 };
 
-// @desc Upload Zero-Knowledge Encrypted Private Key Ring Backup
+// @desc Cloud Backup disabled - Strict Device-Local E2EE
 export const uploadEncryptedKeyRing = async (req, res) => {
-    try {
-        const { encryptedKeyRing, encryptedKeyRingIv } = req.body;
-        if (!encryptedKeyRing || !encryptedKeyRingIv) {
-            return res.status(400).json({ message: 'Missing encrypted key ring data.' });
-        }
-        await User.findByIdAndUpdate(req.user._id, {
-            encryptedKeyRing: typeof encryptedKeyRing === 'object' ? (encryptedKeyRing.ciphertext || JSON.stringify(encryptedKeyRing)) : String(encryptedKeyRing),
-            encryptedKeyRingIv: typeof encryptedKeyRingIv === 'object' ? (encryptedKeyRingIv.iv || JSON.stringify(encryptedKeyRingIv)) : String(encryptedKeyRingIv)
-        });
-        res.status(200).json({ message: 'Encrypted Key Ring backup successful.' });
-    } catch (error) {
-        console.error('Backup upload error:', error);
-        res.status(500).json({ message: 'Server Error' });
-    }
+    return res.status(200).json({ message: 'Device-local encryption active. Cloud backup disabled.' });
 };
 
-// @desc Fetch Zero-Knowledge Encrypted Private Key Ring Backup
+// @desc Fetch Zero-Knowledge Encrypted Private Key Ring Backup (Disabled)
 export const getEncryptedKeyRing = async (req, res) => {
-    try {
-        const user = await User.findById(req.user._id).select('encryptedKeyRing encryptedKeyRingIv');
-        if (!user || !user.encryptedKeyRing) {
-            return res.status(404).json({ message: 'No backup found.' });
-        }
-        res.status(200).json({
-            encryptedKeyRing: user.encryptedKeyRing,
-            encryptedKeyRingIv: user.encryptedKeyRingIv
-        });
-    } catch (error) {
-        console.error('Backup fetch error:', error);
-        res.status(500).json({ message: 'Server Error' });
-    }
+    return res.status(404).json({ message: 'Device-local encryption active. No cloud backup available.' });
 };
 
 // @desc Save user's 128-d Face Biometric Descriptor & eye baseline
