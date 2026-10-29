@@ -190,17 +190,37 @@ export const useAuthStore = create((set, get) => ({
 
                 // 1. If this device already has keys stored in localStorage, use them!
                 if (storedKeyRing.currentKeyId && storedKeyRing.keys[storedKeyRing.currentKeyId]) {
-                    const activePair = storedKeyRing.keys[storedKeyRing.currentKeyId];
-                    const privateKey = await importPrivateKey(activePair.privateKeyJwk);
-                    set({
-                        myPrivateKey: privateKey,
-                        myPublicKeyJwk: activePair.publicKeyJwk,
-                        myCurrentKeyId: storedKeyRing.currentKeyId,
-                        myKeyRing: storedKeyRing
-                    });
+                    try {
+                        const activePair = storedKeyRing.keys[storedKeyRing.currentKeyId];
+                        const privateKey = await importPrivateKey(activePair.privateKeyJwk);
+                        set({
+                            myPrivateKey: privateKey,
+                            myPublicKeyJwk: activePair.publicKeyJwk,
+                            myCurrentKeyId: storedKeyRing.currentKeyId,
+                            myKeyRing: storedKeyRing
+                        });
 
-                    initKeysPromise = null;
-                    return { privateKey, publicKeyJwk: activePair.publicKeyJwk, keyId: storedKeyRing.currentKeyId };
+                        initKeysPromise = null;
+                        return { privateKey, publicKeyJwk: activePair.publicKeyJwk, keyId: storedKeyRing.currentKeyId };
+                    } catch (activeImportErr) {
+                        console.warn('[E2EE] Active key failed import, testing alternative keys in ring:', activeImportErr);
+                        for (const [candId, candPair] of Object.entries(storedKeyRing.keys)) {
+                            if (!candPair?.privateKeyJwk) continue;
+                            try {
+                                const pKey = await importPrivateKey(candPair.privateKeyJwk);
+                                storedKeyRing.currentKeyId = candId;
+                                localStorage.setItem(keyRingKey, JSON.stringify(storedKeyRing));
+                                set({
+                                    myPrivateKey: pKey,
+                                    myPublicKeyJwk: candPair.publicKeyJwk,
+                                    myCurrentKeyId: candId,
+                                    myKeyRing: storedKeyRing
+                                });
+                                initKeysPromise = null;
+                                return { privateKey: pKey, publicKeyJwk: candPair.publicKeyJwk, keyId: candId };
+                            } catch (e) {}
+                        }
+                    }
                 }
 
                 // 2. Otherwise (new device OR Chrome data cleared):

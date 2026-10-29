@@ -267,9 +267,23 @@ export const socketHandler = (io) => {
                     return;
                 }
 
+                // Resolve receiver for project message if not provided
+                let effectiveReceiverId = data.receiverId || null;
+                if (!effectiveReceiverId && projectId) {
+                    try {
+                        const proj = await Project.findById(projectId).select('admin collaborators').lean();
+                        if (proj) {
+                            const allMembers = [proj.admin, ...(proj.collaborators || [])].filter(Boolean);
+                            const other = allMembers.find(m => String(m) !== String(senderId));
+                            if (other) effectiveReceiverId = other;
+                        }
+                    } catch (e) {}
+                }
+
                 // Create message — now with E2EE ciphertext, key version, and self-destruct / view-once
                 let msgData = {
                     sender: senderId,
+                    receiver: effectiveReceiverId || undefined,
                     projectId: projectId,
                     content,                                          // ciphertext (Base64) or plaintext for images/legacy
                     iv: iv || null,                                   // Base64 IV for AES-GCM

@@ -18,12 +18,36 @@ const sharedSecretCache = new Map();
 // Promise memoization cache to prevent Cache Stampede during parallel decryption mapping
 const sharedSecretPromiseCache = new Map();
 
+const recipientKeysMemoryCache = new Map();
+
 export const clearUserEncryptionCache = (userId) => {
     if (userId) {
         sharedSecretCache.delete(userId);
         sharedSecretPromiseCache.delete(userId);
+        recipientKeysMemoryCache.delete(userId);
+    } else {
+        sharedSecretCache.clear();
+        sharedSecretPromiseCache.clear();
+        recipientKeysMemoryCache.clear();
     }
 };
+
+async function getRecipientKeysData(recipientId, forceRefresh = false) {
+    if (!recipientId) return null;
+    const cached = recipientKeysMemoryCache.get(recipientId);
+    if (!forceRefresh && cached && (Date.now() - cached.timestamp < 45000)) {
+        return cached.data;
+    }
+    try {
+        const res = await apiFetch(`/api/auth/keys/${recipientId}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        recipientKeysMemoryCache.set(recipientId, { data, timestamp: Date.now() });
+        return data;
+    } catch (e) {
+        return cached ? cached.data : null;
+    }
+}
 
 /**
  * Eagerly imports a recipient's public key and caches the derived shared secret.
@@ -120,10 +144,9 @@ async function getSharedSecret(recipientId, myRequiredKeyId = null, theirRequire
                 return null;
             }
 
-            // 2. Fetch recipient Public Key Ring
-            const res = await apiFetch(`/api/auth/keys/${recipientId}`);
-            if (!res.ok) return null;
-            const data = await res.json(); // { publicKey, publicKeys: [{keyId, publicKey}] }
+            // 2. Fetch recipient Public Key Ring (cached in memory)
+            const data = await getRecipientKeysData(recipientId);
+            if (!data) return null;
 
             let theirPublicKeyJwk = null;
             let resolvedTheirKeyId = null;
@@ -226,7 +249,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                             } catch (e) {}
                         }
                     }
-                    const project = (projects || []).find(p => (p._id || p.id) === msgProjectId);
+                    const project = (projects || []).find(p => String(p._id || p.id) === String(msgProjectId));
                     if (project) {
                         const others = [project.admin, ...(project.collaborators || [])].filter(m => {
                             if (!m) return false;
@@ -339,10 +362,9 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                     }
                 }
 
-                // Fetch all recipient public keys
-                const kRes = await apiFetch(`/api/auth/keys/${recipientId}`);
-                if (kRes.ok) {
-                    const kData = await kRes.json();
+                // Fetch all recipient public keys from memory cache
+                const kData = await getRecipientKeysData(recipientId);
+                if (kData) {
                     let candPubs = (kData.publicKeys || []).slice();
                     if (kData.publicKey && !candPubs.some(k => k.publicKey === kData.publicKey)) {
                         candPubs.push({ keyId: 'active', publicKey: kData.publicKey });
@@ -359,6 +381,8 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                                     // Found a matching key combination! Cache it so future messages resolve instantly
                                     const winCacheKey = `${recipientId}_${mKeyId}_${theirKeyObj.keyId}`;
                                     sharedSecretCache.set(winCacheKey, { sharedKey: testSecret, theirKeyId: theirKeyObj.keyId });
+                                    const origKey = `${recipientId}_${myRequiredKeyId || 'leg'}_${theirRequiredKeyId || 'leg'}`;
+                                    sharedSecretCache.set(origKey, { sharedKey: testSecret, theirKeyId: theirKeyObj.keyId });
                                     return decrypted;
                                 }
                             } catch (decErr) {
@@ -758,15 +782,40 @@ export const useChatStore = create(
                     if (!data || data.length === 0) return;
 
                     let { activeRecipientId } = get();
+                    const myId = useAuthStore.getState().user?._id?.toString();
                     if (!activeRecipientId) {
-                        const myId = useAuthStore.getState().user?._id?.toString();
                         const otherMsg = data.find(m => {
                             const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
                             return sId && sId !== myId;
                         });
                         if (otherMsg) {
                             activeRecipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                            set({ activeRecipientId });
                         }
+                    }
+
+                    if (!activeRecipientId && projectId) {
+                        try {
+                            let projs = useProjectStore.getState().projects;
+                            if (!projs || projs.length === 0) {
+                                try {
+                                    await useProjectStore.getState().fetchProjects();
+                                    projs = useProjectStore.getState().projects;
+                                } catch (e) {}
+                            }
+                            const proj = (projs || []).find(p => String(p._id || p.id) === String(projectId));
+                            if (proj) {
+                                const others = [proj.admin, ...(proj.collaborators || [])].filter(m => {
+                                    if (!m) return false;
+                                    const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
+                                    return mId !== myId;
+                                });
+                                if (others.length > 0) {
+                                    activeRecipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
+                                    set({ activeRecipientId });
+                                }
+                            }
+                        } catch (e) {}
                     }
 
                     const decryptedMessages = await Promise.all(
@@ -805,13 +854,40 @@ export const useChatStore = create(
                     if (!data || data.length === 0) return 0;
 
                     let { activeRecipientId } = get();
+                    const myId = useAuthStore.getState().user?._id?.toString();
                     if (!activeRecipientId) {
-                        const myId = useAuthStore.getState().user?._id?.toString();
                         const otherMsg = data.find(m => {
                             const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
                             return sId && sId !== myId;
                         });
-                        if (otherMsg) activeRecipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                        if (otherMsg) {
+                            activeRecipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                            set({ activeRecipientId });
+                        }
+                    }
+
+                    if (!activeRecipientId && projectId) {
+                        try {
+                            let projs = useProjectStore.getState().projects;
+                            if (!projs || projs.length === 0) {
+                                try {
+                                    await useProjectStore.getState().fetchProjects();
+                                    projs = useProjectStore.getState().projects;
+                                } catch (e) {}
+                            }
+                            const proj = (projs || []).find(p => String(p._id || p.id) === String(projectId));
+                            if (proj) {
+                                const others = [proj.admin, ...(proj.collaborators || [])].filter(m => {
+                                    if (!m) return false;
+                                    const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
+                                    return mId !== myId;
+                                });
+                                if (others.length > 0) {
+                                    activeRecipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
+                                    set({ activeRecipientId });
+                                }
+                            }
+                        } catch (e) {}
                     }
 
                     const decryptedMessages = await Promise.all(
@@ -1049,16 +1125,23 @@ export const useChatStore = create(
                             // Robust extraction for activeRecipientId if unmounted or delayed in ChatApp
                             if (!activeRecipientId && projectId) {
                                 try {
-                                    const proj = useProjectStore.getState().projects.find(p => p._id === projectId);
+                                    let projs = useProjectStore.getState().projects;
+                                    if (!projs || projs.length === 0) {
+                                        try {
+                                            await useProjectStore.getState().fetchProjects();
+                                            projs = useProjectStore.getState().projects;
+                                        } catch (e) {}
+                                    }
+                                    const proj = (projs || []).find(p => String(p._id || p.id) === String(projectId));
                                     if (proj) {
                                         const myId = currentUser._id.toString();
                                         const others = [proj.admin, ...(proj.collaborators || [])].filter(m => {
                                             if (!m) return false;
-                                            const mId = (typeof m === 'object' ? m._id : m).toString();
+                                            const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
                                             return mId !== myId;
                                         });
                                         if (others.length > 0) {
-                                            activeRecipientId = (typeof others[0] === 'object' ? others[0]._id : others[0]).toString();
+                                            activeRecipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
                                             set({ activeRecipientId });
                                         }
                                     }
@@ -1096,6 +1179,7 @@ export const useChatStore = create(
 
                         const payload = {
                             senderId: currentUser._id,
+                            receiverId: activeRecipientId,
                             projectId,
                             content: finalContent,
                             iv,

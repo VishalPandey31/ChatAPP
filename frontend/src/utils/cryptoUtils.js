@@ -33,7 +33,14 @@ export async function exportPublicKey(publicKey) {
  * Import a Public Key JWK string from the server.
  */
 export async function importPublicKey(jwkString) {
-    const jwk = typeof jwkString === 'string' ? JSON.parse(jwkString) : jwkString;
+    let jwk = jwkString;
+    while (typeof jwk === 'string') {
+        try {
+            jwk = JSON.parse(jwk);
+        } catch {
+            break;
+        }
+    }
     return await window.crypto.subtle.importKey(
         "jwk",
         jwk,
@@ -59,7 +66,14 @@ export async function exportPrivateKey(privateKey) {
  * Import Private Key from local storage.
  */
 export async function importPrivateKey(jwkString) {
-    const jwk = typeof jwkString === 'string' ? JSON.parse(jwkString) : jwkString;
+    let jwk = jwkString;
+    while (typeof jwk === 'string') {
+        try {
+            jwk = JSON.parse(jwk);
+        } catch {
+            break;
+        }
+    }
     return await window.crypto.subtle.importKey(
         "jwk",
         jwk,
