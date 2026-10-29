@@ -193,70 +193,66 @@ async function decryptSingleMessage(msg, activeRecipientId) {
         return decryptedMsg; // nothing to decrypt
     }
 
-    let recipientId = activeRecipientId;
     try {
         const myId = useAuthStore.getState().user?._id?.toString();
         const senderId = typeof msg.sender === 'object' ? msg.sender?._id?.toString() : msg.sender?.toString();
 
-        if (!recipientId) {
-            if (senderId === myId) {
-                recipientId = msg.receiver?.toString?.() || msg.receiver;
-            } else {
-                recipientId = senderId;
-            }
+        let recipientId = null;
+        if (senderId && myId && senderId !== myId) {
+            // For messages received from someone else, the peer whose public key is needed to derive the secret is ALWAYS senderId!
+            recipientId = senderId;
+        } else {
+            // For messages sent by myself, the peer whose public key was used is the recipient (or other project member)
+            recipientId = msg.receiver?.toString?.() || activeRecipientId || useChatStore.getState().activeRecipientId;
         }
-        // For project messages sent by ourselves, receiver is absent.
-        // Fall back to the replyTo sender or derive from the store's cached recipientId.
-        if (!recipientId && msg.projectId) {
-            const storeRecipient = useChatStore.getState().activeRecipientId;
-            if (storeRecipient) {
-                recipientId = storeRecipient;
-            } else if (msg.replyTo) {
+
+        const msgProjectId = msg.projectId || (typeof msg.project === 'object' ? (msg.project._id || msg.project.id) : msg.project) || useChatStore.getState().currentProjectId;
+
+        if (!recipientId && msgProjectId) {
+            if (msg.replyTo) {
                 const replySenderId = typeof msg.replyTo.sender === 'object' ? msg.replyTo.sender?._id?.toString() : msg.replyTo.sender?.toString();
                 if (replySenderId && replySenderId !== myId) recipientId = replySenderId;
             }
-        }
 
-        // Project fallback 1: look up the project directly in projectStore to find the other member
-        if (!recipientId && msg.projectId) {
-            try {
-                let projects = useProjectStore.getState().projects;
-                if (!projects || projects.length === 0) {
-                    const cachedProjects = localStorage.getItem('project-store');
-                    if (cachedProjects) {
-                        try {
-                            const parsed = JSON.parse(cachedProjects);
-                            projects = parsed.state?.projects || [];
-                        } catch (e) {}
+            if (!recipientId) {
+                try {
+                    let projects = useProjectStore.getState().projects;
+                    if (!projects || projects.length === 0) {
+                        const cachedProjects = localStorage.getItem('project-store');
+                        if (cachedProjects) {
+                            try {
+                                const parsed = JSON.parse(cachedProjects);
+                                projects = parsed.state?.projects || [];
+                            } catch (e) {}
+                        }
                     }
-                }
-                const project = (projects || []).find(p => (p._id || p.id) === msg.projectId);
-                if (project) {
-                    const others = [project.admin, ...(project.collaborators || [])].filter(m => {
-                        if (!m) return false;
-                        const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
-                        return mId !== myId;
-                    });
-                    if (others.length > 0) {
-                        recipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
-                        useChatStore.getState().setActiveRecipientId(recipientId);
+                    const project = (projects || []).find(p => (p._id || p.id) === msgProjectId);
+                    if (project) {
+                        const others = [project.admin, ...(project.collaborators || [])].filter(m => {
+                            if (!m) return false;
+                            const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
+                            return mId !== myId;
+                        });
+                        if (others.length > 0) {
+                            recipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
+                            useChatStore.getState().setActiveRecipientId(recipientId);
+                        }
                     }
+                } catch (e) {
+                    console.warn('[E2EE] Could not check projectStore for recipientId fallback', e);
                 }
-            } catch (e) {
-                console.warn('[E2EE] Could not check projectStore for recipientId fallback', e);
             }
-        }
 
-        // Project fallback 2: scan the entire messages cache for someone else
-        if (!recipientId && msg.projectId) {
-            const cachedMsgs = useChatStore.getState().messagesCache[msg.projectId] || useChatStore.getState().messages || [];
-            const otherMsg = cachedMsgs.find(m => {
-                const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
-                return sId && sId !== myId;
-            });
-            if (otherMsg) {
-                recipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
-                useChatStore.getState().setActiveRecipientId(recipientId);
+            if (!recipientId) {
+                const cachedMsgs = useChatStore.getState().messagesCache[msgProjectId] || useChatStore.getState().messages || [];
+                const otherMsg = cachedMsgs.find(m => {
+                    const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
+                    return sId && sId !== myId;
+                });
+                if (otherMsg) {
+                    recipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                    useChatStore.getState().setActiveRecipientId(recipientId);
+                }
             }
         }
 
@@ -310,7 +306,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
             // iterate over ALL known private keys on this device paired against ALL known public keys of recipient.
             try {
                 const auth = useAuthStore.getState();
-                const currentUserId = auth.user?._id;
+                const currentUserId = auth.user?._id?.toString();
                 let activeRing = auth.myKeyRing;
                 if (!activeRing && currentUserId) {
                     try {
@@ -319,7 +315,29 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                     } catch (e) {}
                 }
 
-                const myKeysList = Object.entries(activeRing?.keys || {});
+                // Gather all candidate private keys on this device
+                const candPrivs = [];
+                if (auth.myPrivateKey) {
+                    candPrivs.push({ keyId: auth.myCurrentKeyId || 'active', privKey: auth.myPrivateKey });
+                }
+
+                for (const [mKeyId, mKeyObj] of Object.entries(activeRing?.keys || {})) {
+                    if (!mKeyObj?.privateKeyJwk) continue;
+                    try {
+                        const importedPriv = await importPrivateKey(mKeyObj.privateKeyJwk);
+                        candPrivs.push({ keyId: mKeyId, privKey: importedPriv });
+                    } catch (e) {}
+                }
+
+                if (currentUserId) {
+                    const legacyPrivStr = localStorage.getItem(`e2ee_private_key_${currentUserId}`) || localStorage.getItem('e2ee_private_key_jwk');
+                    if (legacyPrivStr) {
+                        try {
+                            const importedLeg = await importPrivateKey(legacyPrivStr);
+                            candPrivs.push({ keyId: 'legacy', privKey: importedLeg });
+                        } catch (e) {}
+                    }
+                }
 
                 // Fetch all recipient public keys
                 const kRes = await apiFetch(`/api/auth/keys/${recipientId}`);
@@ -330,13 +348,7 @@ async function decryptSingleMessage(msg, activeRecipientId) {
                         candPubs.push({ keyId: 'active', publicKey: kData.publicKey });
                     }
 
-                    for (const [mKeyId, mKeyObj] of myKeysList) {
-                        if (!mKeyObj?.privateKeyJwk) continue;
-                        let candPriv = null;
-                        try {
-                            candPriv = await importPrivateKey(mKeyObj.privateKeyJwk);
-                        } catch (e) { continue; }
-
+                    for (const { keyId: mKeyId, privKey: candPriv } of candPrivs) {
                         for (const theirKeyObj of candPubs) {
                             if (!theirKeyObj?.publicKey) continue;
                             try {
@@ -545,6 +557,18 @@ export const useChatStore = create(
                 }
 
                 if (cached && !force && !isCorrupted) {
+                    // Pre-resolve activeRecipientId if not already present in store
+                    if (!get().activeRecipientId) {
+                        const myId = useAuthStore.getState().user?._id?.toString();
+                        const otherMsg = cached.find(m => {
+                            const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
+                            return sId && sId !== myId;
+                        });
+                        if (otherMsg) {
+                            const recId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                            set({ activeRecipientId: recId });
+                        }
+                    }
                     set({ isMessagesLoading: false, currentProjectId: projectId, messages: cached });
                     // Seamlessly fetch any missing messages in the background
                     get().syncMissedMessages(projectId);
@@ -673,15 +697,34 @@ export const useChatStore = create(
                     if (data.length === 0) return;
 
                     let { activeRecipientId } = get();
+                    const myId = useAuthStore.getState().user?._id?.toString();
                     if (!activeRecipientId) {
-                        const myId = useAuthStore.getState().user?._id?.toString();
                         const otherMsg = data.find(m => {
                             const sId = typeof m.sender === 'object' ? m.sender?._id?.toString() : m.sender?.toString();
                             return sId && sId !== myId;
                         });
                         if (otherMsg) {
                             activeRecipientId = typeof otherMsg.sender === 'object' ? otherMsg.sender?._id?.toString() : otherMsg.sender?.toString();
+                            set({ activeRecipientId });
                         }
+                    }
+
+                    if (!activeRecipientId && projectId) {
+                        try {
+                            const projs = useProjectStore.getState().projects || [];
+                            const proj = projs.find(p => (p._id || p.id) === projectId);
+                            if (proj) {
+                                const others = [proj.admin, ...(proj.collaborators || [])].filter(m => {
+                                    if (!m) return false;
+                                    const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
+                                    return mId !== myId;
+                                });
+                                if (others.length > 0) {
+                                    activeRecipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
+                                    set({ activeRecipientId });
+                                }
+                            }
+                        } catch (e) {}
                     }
 
                     const decryptedMessages = await Promise.all(

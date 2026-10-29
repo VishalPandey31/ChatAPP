@@ -1,3 +1,4 @@
+
 /**
  * E2EE Crypto Utilities using WebCrypto API
  * - ECDH (P-256) for Key Agreement
@@ -32,7 +33,7 @@ export async function exportPublicKey(publicKey) {
  * Import a Public Key JWK string from the server.
  */
 export async function importPublicKey(jwkString) {
-    const jwk = JSON.parse(jwkString);
+    const jwk = typeof jwkString === 'string' ? JSON.parse(jwkString) : jwkString;
     return await window.crypto.subtle.importKey(
         "jwk",
         jwk,
@@ -58,7 +59,7 @@ export async function exportPrivateKey(privateKey) {
  * Import Private Key from local storage.
  */
 export async function importPrivateKey(jwkString) {
-    const jwk = JSON.parse(jwkString);
+    const jwk = typeof jwkString === 'string' ? JSON.parse(jwkString) : jwkString;
     return await window.crypto.subtle.importKey(
         "jwk",
         jwk,
