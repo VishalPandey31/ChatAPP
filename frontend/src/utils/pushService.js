@@ -55,14 +55,20 @@ export async function subscribeToPushNotifications() {
             });
         }
 
-        // Post subscription to backend
+        // Post subscription to backend with Bearer token header + cookies
+        const token = localStorage.getItem('token');
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const res = await fetch(`${BACKEND_URL}/api/notifications/subscribe`, {
             method: 'POST',
             body: JSON.stringify(subscription),
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            credentials: 'include' // to send http-only cookie auth token
+            headers,
+            credentials: 'include' // send http-only cookie if available
         });
 
         if (res.ok) {

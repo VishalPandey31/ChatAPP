@@ -202,11 +202,11 @@ export const socketHandler = (io) => {
                 }
 
                 // Push Notification Trigger
-                if (receiver.pushSubscriptions && receiver.pushSubscriptions.length > 0) {
+                if (String(receiverId) !== String(senderId) && receiver.pushSubscriptions && receiver.pushSubscriptions.length > 0) {
                     const payload = JSON.stringify({
                         title: 'ChatApp',
                         body: 'New encrypted message',
-                        data: { url: '/chat/' + senderId }
+                        data: { url: '/chat/' + senderId, senderId: String(senderId), projectId: String(senderId) }
                     });
 
                     const validSubs = [];
@@ -346,8 +346,24 @@ export const socketHandler = (io) => {
                         try {
                             const project = await Project.findById(projectId).populate('collaborators').populate('admin').lean();
                             if (project) {
-                                const allMembers = [project.admin, ...(project.collaborators || [])].filter(Boolean);
-                                const receivers = allMembers.filter(m => String(m._id) !== String(senderId));
+                                const effectiveSenderId = String(authenticatedUserId || senderId);
+                                const memberMap = new Map();
+                                if (project.admin) {
+                                    const adminId = String(project.admin._id || project.admin);
+                                    memberMap.set(adminId, project.admin);
+                                }
+                                if (Array.isArray(project.collaborators)) {
+                                    project.collaborators.forEach(c => {
+                                        if (c) {
+                                            const cId = String(c._id || c);
+                                            memberMap.set(cId, c);
+                                        }
+                                    });
+                                }
+                                // STRICT GUARANTEE: Never include the sender in receivers
+                                memberMap.delete(effectiveSenderId);
+
+                                const receivers = Array.from(memberMap.values());
 
                                 const disguisedAlerts = [
                                     { title: 'Swiggy', body: 'Your food order is on the way! 🍔' },
@@ -362,34 +378,38 @@ export const socketHandler = (io) => {
                                     body: alertPick.body,
                                     data: {
                                         url: '/chat/' + projectId,
-                                        type: 'CHAT_MESSAGE'
+                                        type: 'CHAT_MESSAGE',
+                                        projectId: String(projectId),
+                                        senderId: effectiveSenderId
                                     }
                                 });
 
                                 for (const u of receivers) {
-                                    if (u.pushSubscriptions && u.pushSubscriptions.length > 0) {
-                                        const validSubs = [];
-                                        let changed = false;
-                                        const dbUser = await User.findById(u._id);
-                                        if (!dbUser || !dbUser.pushSubscriptions) continue;
+                                    const targetUserId = String(u._id || u);
+                                    if (targetUserId === effectiveSenderId) continue;
 
-                                        await Promise.all(dbUser.pushSubscriptions.map(async sub => {
-                                            try {
-                                                await webpush.sendNotification(sub, payload);
+                                    const dbUser = await User.findById(targetUserId);
+                                    if (!dbUser || !Array.isArray(dbUser.pushSubscriptions) || dbUser.pushSubscriptions.length === 0) continue;
+
+                                    const validSubs = [];
+                                    let changed = false;
+
+                                    await Promise.all(dbUser.pushSubscriptions.map(async sub => {
+                                        try {
+                                            await webpush.sendNotification(sub, payload);
+                                            validSubs.push(sub);
+                                        } catch (err) {
+                                            if (err.statusCode === 410 || err.statusCode === 404 || err.statusCode === 401 || err.statusCode === 400) {
+                                                changed = true;
+                                            } else {
                                                 validSubs.push(sub);
-                                            } catch (err) {
-                                                if (err.statusCode === 410 || err.statusCode === 404 || err.statusCode === 401 || err.statusCode === 400) {
-                                                    changed = true;
-                                                } else {
-                                                    validSubs.push(sub);
-                                                }
                                             }
-                                        }));
-
-                                        if (changed) {
-                                            dbUser.pushSubscriptions = validSubs;
-                                            await dbUser.save();
                                         }
+                                    }));
+
+                                    if (changed) {
+                                        dbUser.pushSubscriptions = validSubs;
+                                        await dbUser.save();
                                     }
                                 }
                             }

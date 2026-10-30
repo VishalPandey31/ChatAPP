@@ -310,6 +310,13 @@ export const useAuthStore = create((set, get) => ({
                 console.warn('[E2EE] Key initialization warning on login:', kErr);
             }
 
+            // Automatically register push notifications if permission is granted
+            if (typeof window !== 'undefined' && window.Notification && window.Notification.permission === 'granted') {
+                import('../utils/pushService').then(({ subscribeToPushNotifications }) => {
+                    subscribeToPushNotifications();
+                }).catch(e => console.warn('Push registration on login failed:', e));
+            }
+
             return true;
         } catch (err) {
             console.error(err);
@@ -411,6 +418,13 @@ export const useAuthStore = create((set, get) => ({
                 // Trigger re-decryption pass across any currently rendered chat
                 import('./chatStore').then(m => m.useChatStore.getState().redecryptCurrentMessages?.());
             });
+
+            // Automatically register push notifications if permission is granted
+            if (typeof window !== 'undefined' && window.Notification && window.Notification.permission === 'granted') {
+                import('../utils/pushService').then(({ subscribeToPushNotifications }) => {
+                    subscribeToPushNotifications();
+                }).catch(e => console.warn('Push registration on checkAuth failed:', e));
+            }
         } catch (err) {
             console.error(err);
             set({ user: null, isCheckingAuth: false });
