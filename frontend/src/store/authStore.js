@@ -436,8 +436,7 @@ export const useAuthStore = create((set, get) => ({
             reconnection: true,
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            autoConnect: false
+            reconnectionDelayMax: 5000
         });
 
         socket.on('connect', () => {

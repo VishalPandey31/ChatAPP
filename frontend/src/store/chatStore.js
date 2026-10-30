@@ -39,8 +39,8 @@ async function getRecipientKeysData(recipientId, forceRefresh = false) {
         return cached.data;
     }
     try {
-        const res = await apiFetch(`/api/auth/keys/${recipientId}`);
-        if (!res.ok) return null;
+        const res = await apiFetch(`/api/auth/keys/${recipientId}`, { timeout: 4000 });
+        if (!res.ok) return cached ? cached.data : null;
         const data = await res.json();
         recipientKeysMemoryCache.set(recipientId, { data, timestamp: Date.now() });
         return data;
@@ -102,8 +102,10 @@ async function getSharedSecret(recipientId, myRequiredKeyId = null, theirRequire
 
     const fetchPromise = (async () => {
         try {
-            const authState = useAuthStore.getState();
-            let myPrivateKey = null;
+            return await Promise.race([
+                (async () => {
+                    const authState = useAuthStore.getState();
+                    let myPrivateKey = null;
 
             // 1. Resolve My Private Key from Key Ring or Active State
             let myKeyRing = authState.myKeyRing;
@@ -187,6 +189,9 @@ async function getSharedSecret(recipientId, myRequiredKeyId = null, theirRequire
             const resultObj = { sharedKey, theirKeyId: resolvedTheirKeyId };
             sharedSecretCache.set(cacheKey, resultObj);
             return resultObj;
+                })(),
+                new Promise(resolve => setTimeout(() => resolve(null), 5000))
+            ]);
         } catch (err) {
             console.warn('[E2EE] Could not derive shared secret for', recipientId, err);
             return null;
@@ -1066,11 +1071,9 @@ export const useChatStore = create(
 
             sendProjectMessage: async (projectId, content, replyToId = null, messageType = 'TEXT', options = {}) => {
                 return new Promise((resolve, reject) => {
-                    const socket = useAuthStore.getState().socket;
-                    if (!socket) return reject(new Error("No active socket connection"));
-
                     const clientMessageId = `msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
                     const currentUser = useAuthStore.getState().user;
+                    if (!currentUser) return reject(new Error("Not logged in"));
 
                     // 1. Instantly construct and push Optimistic UI WITHOUT waiting for encryption
                     const optimisticMsg = {
@@ -1111,7 +1114,7 @@ export const useChatStore = create(
                         };
                     });
 
-                    // 2. Process Crypto and Network payload asynchronously
+                    // 2. Process Crypto and Network payload with full safety wrapper
                     (async () => {
                         let finalContent = content;
                         let iv = null;
@@ -1119,139 +1122,184 @@ export const useChatStore = create(
                         let resolvedSenderKeyId = null;
                         let resolvedRecipientKeyId = null;
 
-                        if ((messageType === 'TEXT' || messageType === 'IMAGE' || messageType === 'VIDEO') && content && typeof content === 'string') {
-                            let { activeRecipientId } = get();
+                        try {
+                            if ((messageType === 'TEXT' || messageType === 'IMAGE' || messageType === 'VIDEO') && content && typeof content === 'string') {
+                                let { activeRecipientId } = get();
 
-                            // Robust extraction for activeRecipientId if unmounted or delayed in ChatApp
-                            if (!activeRecipientId && projectId) {
-                                try {
-                                    let projs = useProjectStore.getState().projects;
-                                    if (!projs || projs.length === 0) {
-                                        try {
-                                            await useProjectStore.getState().fetchProjects();
-                                            projs = useProjectStore.getState().projects;
-                                        } catch (e) {}
-                                    }
-                                    const proj = (projs || []).find(p => String(p._id || p.id) === String(projectId));
-                                    if (proj) {
-                                        const myId = currentUser._id.toString();
-                                        const others = [proj.admin, ...(proj.collaborators || [])].filter(m => {
-                                            if (!m) return false;
-                                            const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
-                                            return mId !== myId;
-                                        });
-                                        if (others.length > 0) {
-                                            activeRecipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
-                                            set({ activeRecipientId });
+                                if (!activeRecipientId && projectId) {
+                                    try {
+                                        let projs = useProjectStore.getState().projects;
+                                        if (!projs || projs.length === 0) {
+                                            try {
+                                                await useProjectStore.getState().fetchProjects();
+                                                projs = useProjectStore.getState().projects;
+                                            } catch (e) {}
                                         }
-                                    }
-                                } catch (e) {}
-                            }
+                                        const proj = (projs || []).find(p => String(p._id || p.id) === String(projectId));
+                                        if (proj) {
+                                            const myId = currentUser._id.toString();
+                                            const others = [proj.admin, ...(proj.collaborators || [])].filter(m => {
+                                                if (!m) return false;
+                                                const mId = (typeof m === 'object' ? (m._id || m.id) : m).toString();
+                                                return mId !== myId;
+                                            });
+                                            if (others.length > 0) {
+                                                activeRecipientId = (typeof others[0] === 'object' ? (others[0]._id || others[0].id) : others[0]).toString();
+                                                set({ activeRecipientId });
+                                            }
+                                        }
+                                    } catch (e) {}
+                                }
 
-                            if (activeRecipientId) {
-                                try {
-                                    let myCurrentKeyId = useAuthStore.getState().myCurrentKeyId;
-                                    if (!myCurrentKeyId) {
-                                        await useAuthStore.getState()._initE2EEKeys();
-                                        myCurrentKeyId = useAuthStore.getState().myCurrentKeyId;
-                                    }
+                                if (activeRecipientId) {
+                                    try {
+                                        let myCurrentKeyId = useAuthStore.getState().myCurrentKeyId;
+                                        if (!myCurrentKeyId) {
+                                            await useAuthStore.getState()._initE2EEKeys();
+                                            myCurrentKeyId = useAuthStore.getState().myCurrentKeyId;
+                                        }
 
-                                    const secretObj = await getSharedSecret(activeRecipientId, myCurrentKeyId, 'LATEST');
-                                    if (secretObj && secretObj.sharedKey) {
-                                        const encrypted = await encryptMessage(content, secretObj.sharedKey);
-                                        finalContent = encrypted.ciphertext;
-                                        iv = encrypted.iv;
-                                        encryptionVersion = 1;
-                                        resolvedSenderKeyId = myCurrentKeyId || 'legacy';
-                                        resolvedRecipientKeyId = secretObj.theirKeyId || 'legacy';
-                                    } else {
-                                        console.warn("[E2EE] Secret key unresolvable with recipient, falling back safely:", activeRecipientId);
+                                        // Wrap encryption preparation with a 4s timeout so it never hangs
+                                        const secretObj = await Promise.race([
+                                            getSharedSecret(activeRecipientId, myCurrentKeyId, 'LATEST'),
+                                            new Promise(r => setTimeout(() => r(null), 4000))
+                                        ]);
+
+                                        if (secretObj && secretObj.sharedKey) {
+                                            const encrypted = await encryptMessage(content, secretObj.sharedKey);
+                                            finalContent = encrypted.ciphertext;
+                                            iv = encrypted.iv;
+                                            encryptionVersion = 1;
+                                            resolvedSenderKeyId = myCurrentKeyId || 'legacy';
+                                            resolvedRecipientKeyId = secretObj.theirKeyId || 'legacy';
+                                        } else {
+                                            console.warn("[E2EE] Secret key unresolvable with recipient, falling back safely:", activeRecipientId);
+                                            finalContent = content;
+                                            encryptionVersion = 0;
+                                        }
+                                    } catch (err) {
+                                        console.warn("[E2EE] Encryption failed, sending plaintext fallback:", err);
                                         finalContent = content;
                                         encryptionVersion = 0;
                                     }
-                                } catch (err) {
-                                    console.warn("[E2EE] Encryption failed, sending plaintext fallback:", err);
-                                    finalContent = content;
-                                    encryptionVersion = 0;
                                 }
                             }
-                        }
 
-                        const payload = {
-                            senderId: currentUser._id,
-                            receiverId: activeRecipientId,
-                            projectId,
-                            content: finalContent,
-                            iv,
-                            encryptionVersion,
-                            senderKeyId: resolvedSenderKeyId,
-                            recipientKeyId: resolvedRecipientKeyId,
-                            messageType,
-                            clientMessageId,
-                            selfDestructDuration: Number(options.selfDestructDuration) || 0,
-                            viewOnce: Boolean(options.viewOnce)
-                        };
-                        if (replyToId) payload.replyTo = replyToId;
+                            const payload = {
+                                senderId: currentUser._id,
+                                receiverId: get().activeRecipientId || undefined,
+                                projectId,
+                                content: finalContent,
+                                iv,
+                                encryptionVersion,
+                                senderKeyId: resolvedSenderKeyId,
+                                recipientKeyId: resolvedRecipientKeyId,
+                                messageType,
+                                clientMessageId,
+                                selfDestructDuration: Number(options.selfDestructDuration) || 0,
+                                viewOnce: Boolean(options.viewOnce)
+                            };
+                            if (replyToId) payload.replyTo = replyToId;
 
-                        // Safely queue the background emission
-                        set(state => {
-                            const newPending = [...(state.pendingMessages || [])];
-                            if (!newPending.some(p => p.payload.clientMessageId === clientMessageId)) {
-                                newPending.push({ payload, optimisticMsg });
+                            // Queue in pending messages
+                            set(state => {
+                                const newPending = [...(state.pendingMessages || [])];
+                                if (!newPending.some(p => p.payload.clientMessageId === clientMessageId)) {
+                                    newPending.push({ payload, optimisticMsg });
+                                }
+                                return { pendingMessages: newPending };
+                            });
+
+                            // Get active socket
+                            let sock = useAuthStore.getState().socket;
+                            if (!sock || !sock.connected) {
+                                if (sock) sock.connect();
+                                // Wait up to 3s for connection
+                                await new Promise((r) => {
+                                    sock = useAuthStore.getState().socket;
+                                    if (sock && sock.connected) return r();
+                                    const onConn = () => {
+                                        if (sock) sock.off('connect', onConn);
+                                        r();
+                                    };
+                                    if (sock) sock.once('connect', onConn);
+                                    setTimeout(r, 3000);
+                                });
+                                sock = useAuthStore.getState().socket;
                             }
-                            return { pendingMessages: newPending };
-                        });
 
-                        // Smart emission with auto-reconnect fallback
-                        if (!socket.connected) {
-                            console.warn('[Lifecycle] Socket disconnected, queued pending msg and triggering connect');
-                            socket.connect();
-                            return resolve({ status: 'queued', messageId: clientMessageId });
-                        }
-
-                        // 15-second timeout for snappy feedback
-                        socket.timeout(15000).emit("send_project_message", payload, (err, response) => {
-                            if (err) {
-                                console.warn("[Lifecycle] Emit timeout. Message marked for offline retry.", err);
-                                set(state => {
-                                    const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
-                                    const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'FAILED' } : m);
-                                    const newCache = { ...state.messagesCache };
-                                    newCache[projectId] = newMsgs;
-                                    return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
-                                });
-                                resolve({ status: 'failed', error: 'Send timeout' });
-                            } else if (response && response.status === 'ok') {
-                                // Wipe from pending list and transition SENDING -> SENT
-                                set(state => {
-                                    const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
-                                    const newMsgs = state.messages.map(m => {
-                                        if (m.clientMessageId === clientMessageId) {
-                                            return { ...m, _id: response.messageId, status: 'SENT' };
+                            if (!sock || !sock.connected) {
+                                console.warn('[Lifecycle] Socket still disconnected, keeping in pending queue and timing out after 15s');
+                                setTimeout(() => {
+                                    set(state => {
+                                        const stillPending = state.pendingMessages.some(p => p.payload.clientMessageId === clientMessageId);
+                                        if (stillPending) {
+                                            const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                                            const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'FAILED' } : m);
+                                            const newCache = { ...state.messagesCache };
+                                            newCache[projectId] = newMsgs;
+                                            return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
                                         }
-                                        return m;
+                                        return state;
                                     });
-                                    const newCache = { ...state.messagesCache };
-                                    newCache[projectId] = newMsgs;
-                                    return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
-                                });
-                                resolve(response);
-                            } else {
-                                set(state => {
-                                    const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
-                                    const newMsgs = state.messages.map(m => {
-                                        if (m.clientMessageId === clientMessageId) {
-                                            return { ...m, status: 'FAILED' };
-                                        }
-                                        return m;
-                                    });
-                                    const newCache = { ...state.messagesCache };
-                                    newCache[projectId] = newMsgs;
-                                    return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
-                                });
-                                resolve({ status: 'failed', error: response?.error || "Failed to send" });
+                                }, 15000);
+                                return resolve({ status: 'queued', messageId: clientMessageId });
                             }
-                        });
+
+                            // Active emission with 15s timeout
+                            sock.timeout(15000).emit("send_project_message", payload, (err, response) => {
+                                if (err) {
+                                    console.warn("[Lifecycle] Emit timeout for message:", clientMessageId);
+                                    set(state => {
+                                        const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                                        const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'FAILED' } : m);
+                                        const newCache = { ...state.messagesCache };
+                                        newCache[projectId] = newMsgs;
+                                        return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                                    });
+                                    resolve({ status: 'failed', error: 'Send timeout' });
+                                } else if (response && response.status === 'ok') {
+                                    set(state => {
+                                        const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                                        const newMsgs = state.messages.map(m => {
+                                            if (m.clientMessageId === clientMessageId) {
+                                                return { ...m, _id: response.messageId, status: 'SENT' };
+                                            }
+                                            return m;
+                                        });
+                                        const newCache = { ...state.messagesCache };
+                                        newCache[projectId] = newMsgs;
+                                        return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                                    });
+                                    resolve(response);
+                                } else {
+                                    console.warn("[Lifecycle] Send rejected:", response);
+                                    set(state => {
+                                        const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                                        const newMsgs = state.messages.map(m => {
+                                            if (m.clientMessageId === clientMessageId) {
+                                                return { ...m, status: 'FAILED' };
+                                            }
+                                            return m;
+                                        });
+                                        const newCache = { ...state.messagesCache };
+                                        newCache[projectId] = newMsgs;
+                                        return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                                    });
+                                    resolve({ status: 'failed', error: response?.error || "Failed to send" });
+                                }
+                            });
+                        } catch (outerErr) {
+                            console.error("[Lifecycle] sendProjectMessage fatal error:", outerErr);
+                            set(state => {
+                                const newPending = state.pendingMessages.filter(p => p.payload.clientMessageId !== clientMessageId);
+                                const newMsgs = state.messages.map(m => m.clientMessageId === clientMessageId ? { ...m, status: 'FAILED' } : m);
+                                const newCache = { ...state.messagesCache };
+                                newCache[projectId] = newMsgs;
+                                return { pendingMessages: newPending, messages: newMsgs, messagesCache: newCache };
+                            });
+                            resolve({ status: 'failed', error: outerErr.message });
+                        }
                     })();
                 });
             },

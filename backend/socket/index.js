@@ -249,7 +249,16 @@ export const socketHandler = (io) => {
                 const { senderId, projectId, content, messageType, replyTo, clientMessageId, iv, encryptionVersion, senderKeyId, recipientKeyId, selfDestructDuration, viewOnce } = data;
 
                 // Security: Validate the senderId matches the authenticated socket user
-                const authenticatedUserId = connectedUsers.get(socket.id) || socket.userId || socket.handshake.auth?.userId || socket.handshake.query?.userId;
+                let authenticatedUserId = connectedUsers.get(socket.id) || socket.userId || socket.handshake.auth?.userId || socket.handshake.query?.userId;
+                if (!authenticatedUserId && senderId) {
+                    authenticatedUserId = String(senderId);
+                    connectedUsers.set(socket.id, authenticatedUserId);
+                    socket.userId = authenticatedUserId;
+                    if (!userSockets.has(authenticatedUserId)) {
+                        userSockets.set(authenticatedUserId, new Set());
+                    }
+                    userSockets.get(authenticatedUserId).add(socket.id);
+                }
                 if (!authenticatedUserId || String(authenticatedUserId) !== String(senderId)) {
                     console.warn('[Security] Blocked spoofed senderId from socket:', socket.id, 'auth:', authenticatedUserId, 'sender:', senderId);
                     if (typeof callback === 'function') callback({ status: 'error', error: 'Unauthorized sender' });
